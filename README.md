@@ -12,6 +12,10 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 - **详情卡**：悬停或点击圆环，显示每个额度（5 小时 / 周 / 月）的用量和重置倒计时
 - **可定制**：大中小三种尺寸；显示"已用"或"剩余"；红绿灯配色或品牌色；透明度；单独隐藏某家；刷新间隔；开机启动
 - **登录失效时**：继续显示最后一次读到的数据，并标明是什么时候的
+- **节奏预测**：每个额度按目前的速度，算出多久后用完、能不能撑到重置
+- **谁在烧额度**：读取 Claude Code 和 Codex 的本地会话记录，算出当前周期里每个会话（项目）占了多少（按 token 加权估算，只统计真正走订阅的模型）
+- **下一个用谁**：在撑得到重置的账号里推荐最宽裕的那个，圆环上会出现小星标
+- **Codex 离线也能看**：Codex 自己的会话记录里带着额度百分比，断网或登录过期时直接读本地
 
 ## 数据来源
 
@@ -24,6 +28,7 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 
 - 只**读取**各家官方工具已经保存在本机的登录，从不刷新或改写令牌；令牌只发给对应的官方 HTTPS 地址，并且拒绝重定向。
 - 这些接口都是各家没有公开文档的内部接口，以后可能随时变化。
+- 会话统计只读取 `~/.claude/projects` 和 `~/.codex/sessions` 里的 token 数和项目目录，不读对话内容。
 - 可选：如果装了 [CodexBar](https://github.com/steipete/CodexBar)，"自动"模式会用它补上内置方式读不到的服务（支持 100 多家）。不装也能正常使用。
 
 ## 安装与构建
@@ -41,6 +46,7 @@ zsh scripts/package.sh --no-launch
 
 ```bash
 swift build -c release && .build/release/UsageRings --snapshot /tmp/rings
+swift test
 ```
 
 ## 致谢

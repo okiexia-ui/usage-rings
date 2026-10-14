@@ -47,7 +47,7 @@ struct IslandLayout {
         let lines = CGFloat(min(max(maxWindows, 1), 3))
         return CGSize(
             width: max(collapsedSize.width, CGFloat(count) * Self.columnWidth + 32),
-            height: notch.height + 8 + Self.expandedRing + 5 + 13 + 4 + lines * 13 + 3 + 12 + 14
+            height: notch.height + 8 + Self.expandedRing + 5 + 13 + 4 + lines * 13 + 3 + 12 + 12 + 8 + 16 + 12
         )
     }
 }
@@ -131,10 +131,23 @@ struct IslandView: View {
 
     private var expandedContent: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(providers) { provider in
-                    column(provider, now: context.date)
-                        .frame(width: IslandLayout.columnWidth)
+            VStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(providers) { provider in
+                        column(provider, now: context.date)
+                            .frame(width: IslandLayout.columnWidth)
+                    }
+                }
+                if let pick = Recommendation.pick(providers) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
+                        Text("下一个任务建议用 \(pick.name) · 还剩 \(100 - Int((pick.peak?.usedPercent ?? 0).rounded()))%")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .frame(height: 16)
                 }
             }
         }
@@ -179,6 +192,14 @@ struct IslandView: View {
                         .font(.system(size: 8.5))
                         .foregroundStyle(.white.opacity(0.35))
                         .lineLimit(1)
+                }
+                if !provider.isStale,
+                   let runsOut = provider.windows.compactMap({ Pace.of($0, now: now)?.runsOutIn }).min() {
+                    Text("⚡ \(DetailCard.duration(runsOut))后用完")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(Severity.color(95))
+                        .lineLimit(1)
+                        .frame(height: 12)
                 }
             }
         }

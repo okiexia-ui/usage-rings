@@ -42,19 +42,20 @@ struct SideLayout {
 
     static let cardGap: CGFloat = 6
     static let cardWidth: CGFloat = 232
-    static let cardMinHeight: CGFloat = 132
     static let screenInset: CGFloat = 5
 
-    func panelSize(collapsed: Bool, expanded: Bool) -> CGSize {
+    /// `cardHeight` is the open detail card's estimated height, nil when
+    /// no card is showing.
+    func panelSize(collapsed: Bool, cardHeight: CGFloat?) -> CGSize {
         if collapsed {
             return CGSize(width: Self.tabWidth, height: Self.tabHeight(rowCount: rowCount))
         }
-        guard expanded else {
+        guard let cardHeight else {
             return CGSize(width: columnWidth, height: columnHeight)
         }
         return CGSize(
             width: columnWidth + Self.cardGap + Self.cardWidth,
-            height: max(columnHeight, Self.cardMinHeight)
+            height: max(columnHeight, cardHeight)
         )
     }
 }
@@ -76,6 +77,8 @@ struct SideRingsView: View {
         guard !settings.isCollapsed else { return nil }
         return providers.first { $0.id == store.expandedID }
     }
+
+    private var recommendation: ProviderUsage? { Recommendation.pick(providers) }
 
     var body: some View {
         HStack(alignment: .center, spacing: SideLayout.cardGap) {
@@ -116,7 +119,8 @@ struct SideRingsView: View {
             appearance: RingAppearance(settings),
             lastUpdated: store.lastUpdated,
             lastError: store.lastError,
-            isPinned: store.pinnedID == provider.id
+            isPinned: store.pinnedID == provider.id,
+            recommendation: recommendation
         )
         .transition(.opacity)
     }
@@ -159,6 +163,16 @@ struct SideRingsView: View {
         return VStack(spacing: layout.labelSpacing) {
             UsageRing(provider: provider, appearance: RingAppearance(settings))
                 .frame(width: layout.ringDiameter, height: layout.ringDiameter)
+                .overlay(alignment: .topTrailing) {
+                    if recommendation?.id == provider.id {
+                        Image(systemName: "sparkle")
+                            .font(.system(size: max(7, layout.ringDiameter * 0.2), weight: .bold))
+                            .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
+                            .shadow(color: .black.opacity(0.6), radius: 1)
+                            .offset(x: 3, y: -3)
+                            .help("下一个任务建议用它")
+                    }
+                }
                 .scaleEffect(isActive ? 1.06 : 1)
                 .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isActive)
 
@@ -341,10 +355,33 @@ struct DetailCard: View {
     let lastUpdated: Date?
     let lastError: String?
     let isPinned: Bool
+    var recommendation: ProviderUsage?
+
+    private static let spacing: CGFloat = 6
+    private static let maxShareRows = 3
+
+    /// Mirrors the layout below so the panel can be sized before SwiftUI
+    /// lays the card out.
+    static func estimatedHeight(for provider: ProviderUsage, hasRecommendation: Bool) -> CGFloat {
+        var height: CGFloat = 22 + 16
+        if provider.error != nil, provider.windows.isEmpty || provider.isStale {
+            height += spacing + 30
+        }
+        height += CGFloat(provider.windows.count) * (spacing + 16 + 13)
+        let shareRows = min(provider.sessionShares.count, maxShareRows)
+            + (provider.sessionShares.count > maxShareRows ? 1 : 0)
+        if shareRows > 0 {
+            height += spacing + 16 + CGFloat(shareRows) * 15
+        }
+        if hasRecommendation, !provider.windows.isEmpty {
+            height += spacing + 14
+        }
+        return height + spacing + 13 + 8
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Self.spacing) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Circle()
                         .fill(BrandPalette.color(for: provider.providerID))
@@ -380,8 +417,17 @@ struct DetailCard: View {
                 }
 
                 ForEach(provider.windows) { window in
-                    windowRow(window, now: context.date)
+                    VStack(alignment: .leading, spacing: 2) {
+                        windowRow(window, now: context.date)
+                        paceLine(window, now: context.date)
+                    }
                 }
+
+                if !provider.sessionShares.isEmpty {
+                    sessionsSection
+                }
+
+                recommendationLine
 
                 footer(now: context.date)
             }
@@ -421,6 +467,113 @@ struct DetailCard: View {
                 .frame(width: 58, alignment: .trailing)
                 .lineLimit(1)
         }
+    }
+
+    @ViewBuilder
+    private func paceLine(_ window: UsageWindow, now: Date) -> some View {
+        Group {
+            if provider.isStale {
+                EmptyView()
+            } else if let pace = Pace.of(window, now: now) {
+                if let runsOut = pace.runsOutIn {
+                    Label("按现在速度 \(Self.duration(runsOut))后用完", systemImage: "bolt.fill")
+                        .foregroundStyle(Severity.color(window.usedPercent >= 70 ? 95 : 80))
+                } else if pace.delta(used: window.usedPercent) > 10 {
+                    Text("用得偏快，不过撑得到重置")
+                        .foregroundStyle(.white.opacity(0.4))
+                } else {
+                    Text("节奏正常，撑得到重置")
+                        .foregroundStyle(.white.opacity(0.3))
+                }
+            }
+        }
+        .font(.system(size: 9))
+        .labelStyle(.titleAndIcon)
+        .padding(.leading, 27)
+        .frame(height: 11)
+    }
+
+    private var sessionsSection: some View {
+        let window = SessionAttribution.attributionWindow(for: provider)
+        let shown = provider.sessionShares.prefix(Self.maxShareRows)
+        let others = provider.sessionShares.dropFirst(Self.maxShareRows).reduce(0) { $0 + $1.share }
+
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("\(Self.periodName(window?.label))谁在用（按 token 估算）")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.4))
+                .frame(height: 13)
+            ForEach(Array(shown)) { share in
+                shareRow(share.name, share.share)
+            }
+            if others > 0.005 {
+                shareRow("其他", others)
+            }
+        }
+    }
+
+    private func shareRow(_ name: String, _ share: Double) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Capsule()
+                .fill(.white.opacity(0.1))
+                .frame(width: 48, height: 3)
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(BrandPalette.color(for: provider.providerID))
+                        .frame(width: max(2, 48 * share), height: 3)
+                }
+            Text("\(Int((share * 100).rounded()))%")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 30, alignment: .trailing)
+        }
+        .frame(height: 12)
+    }
+
+    @ViewBuilder
+    private var recommendationLine: some View {
+        if let recommendation, !provider.windows.isEmpty {
+            HStack(spacing: 4) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
+                Text(recommendation.providerID == provider.providerID
+                     ? "现在最宽裕，下一个任务建议用它"
+                     : "下一个任务建议用 \(recommendation.name)（还剩 \(100 - Int((recommendation.peak?.usedPercent ?? 0).rounded()))%）")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(height: 13)
+        }
+    }
+
+    static func periodName(_ label: String?) -> String {
+        switch label {
+        case "周": "这周"
+        case "月": "这个月"
+        case "日": "今天"
+        case let label?: "这 \(label) 里"
+        case nil: "这个周期"
+        }
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let total = max(60, Int(seconds))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 { return hours > 0 ? "\(days)天\(hours)时" : "\(days)天" }
+        if hours > 0 { return "\(hours)时\(minutes)分" }
+        return "\(minutes)分钟"
     }
 
     private func staleText(_ error: String, now: Date) -> String {

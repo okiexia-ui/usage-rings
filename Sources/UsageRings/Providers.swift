@@ -84,6 +84,19 @@ struct CodexProvider: BuiltInProvider {
     }
 
     func fetch() async throws -> ProviderUsage {
+        do {
+            return try await fetchFromAPI()
+        } catch {
+            // Codex logs its own rate limits; good enough offline or with an
+            // expired login.
+            if let local = SessionAttribution.codexLocalUsage() {
+                return local
+            }
+            throw error
+        }
+    }
+
+    private func fetchFromAPI() async throws -> ProviderUsage {
         guard let json = JSONFile.object(at: authURL),
               let tokens = json["tokens"] as? [String: Any],
               let accessToken = (tokens["access_token"] as? String)?.nonEmpty else {
@@ -102,6 +115,16 @@ struct CodexProvider: BuiltInProvider {
             headers: headers
         )
 
+        let windows = Self.windows(from: body)
+        guard !windows.isEmpty else {
+            throw ProviderError.badResponse("Codex 没有返回额度信息")
+        }
+
+        let email = (tokens["id_token"] as? String).flatMap(JWT.email)
+        return ProviderUsage.make(id: id, account: email, windows: windows)
+    }
+
+    static func windows(from body: [String: Any]) -> [UsageWindow] {
         let rateLimit = body["rate_limit"] as? [String: Any]
         var windows: [UsageWindow] = []
         for (key, field) in [("primary", "primary_window"), ("secondary", "secondary_window")] {
@@ -115,12 +138,7 @@ struct CodexProvider: BuiltInProvider {
                 resetsAt: Num.double(window["reset_at"]).map { Date(timeIntervalSince1970: $0) }
             ))
         }
-        guard !windows.isEmpty else {
-            throw ProviderError.badResponse("Codex 没有返回额度信息")
-        }
-
-        let email = (tokens["id_token"] as? String).flatMap(JWT.email)
-        return ProviderUsage.make(id: id, account: email, windows: windows)
+        return windows
     }
 }
 
@@ -169,6 +187,16 @@ struct ClaudeProvider: BuiltInProvider {
             headers: headers
         )
 
+        let windows = Self.windows(from: body)
+        guard !windows.isEmpty else {
+            throw ProviderError.badResponse("Claude 没有返回额度信息")
+        }
+
+        let plan = (oauth["subscriptionType"] as? String)?.nonEmpty.map { "Claude \($0.capitalized)" }
+        return ProviderUsage.make(id: id, account: plan, windows: windows)
+    }
+
+    static func windows(from body: [String: Any]) -> [UsageWindow] {
         var windows: [UsageWindow] = []
         for (key, field, minutes) in [("primary", "five_hour", 300), ("secondary", "seven_day", 10_080)] {
             guard let window = body[field] as? [String: Any],
@@ -180,12 +208,7 @@ struct ClaudeProvider: BuiltInProvider {
                 resetsAt: (window["resets_at"] as? String).flatMap(ISODate.parse)
             ))
         }
-        guard !windows.isEmpty else {
-            throw ProviderError.badResponse("Claude 没有返回额度信息")
-        }
-
-        let plan = (oauth["subscriptionType"] as? String)?.nonEmpty.map { "Claude \($0.capitalized)" }
-        return ProviderUsage.make(id: id, account: plan, windows: windows)
+        return windows
     }
 }
 
@@ -221,20 +244,22 @@ struct OpenCodeGoProvider: BuiltInProvider {
             URL(string: "https://opencode.ai/zen/go/v1/usage")!,
             headers: HTTP.baseHeaders(token: key)
         )
-        guard let usage = body["usage"] as? [String: Any] else {
-            throw ProviderError.badResponse("OpenCode Go 没有返回额度信息")
-        }
-
-        var windows: [UsageWindow] = []
-        for (key, field, minutes) in [("primary", "rolling", 300), ("secondary", "weekly", 10_080), ("tertiary", "monthly", 43_200)] {
-            guard let window = usage[field] as? [String: Any],
-                  let used = Self.percent(window) else { continue }
-            windows.append(UsageWindow.make(key: key, usedPercent: used, minutes: minutes, resetsAt: Self.reset(window)))
-        }
+        let windows = Self.windows(from: body)
         guard !windows.isEmpty else {
             throw ProviderError.badResponse("OpenCode Go 没有返回额度信息")
         }
         return ProviderUsage.make(id: id, windows: windows)
+    }
+
+    static func windows(from body: [String: Any], now: Date = .now) -> [UsageWindow] {
+        guard let usage = body["usage"] as? [String: Any] else { return [] }
+        var windows: [UsageWindow] = []
+        for (key, field, minutes) in [("primary", "rolling", 300), ("secondary", "weekly", 10_080), ("tertiary", "monthly", 43_200)] {
+            guard let window = usage[field] as? [String: Any],
+                  let used = percent(window) else { continue }
+            windows.append(UsageWindow.make(key: key, usedPercent: used, minutes: minutes, resetsAt: reset(window, now: now)))
+        }
+        return windows
     }
 
     private static func percent(_ window: [String: Any]) -> Double? {
@@ -248,9 +273,9 @@ struct OpenCodeGoProvider: BuiltInProvider {
         return nil
     }
 
-    private static func reset(_ window: [String: Any]) -> Date? {
+    private static func reset(_ window: [String: Any], now: Date) -> Date? {
         for key in ["resetInSec", "resetInSeconds", "resetSeconds"] {
-            if let seconds = Num.double(window[key]) { return Date(timeIntervalSinceNow: seconds) }
+            if let seconds = Num.double(window[key]) { return now.addingTimeInterval(seconds) }
         }
         for key in ["resetAt", "resetsAt", "reset_at"] {
             if let string = window[key] as? String, let date = ISODate.parse(string) { return date }
@@ -306,11 +331,15 @@ struct KimiProvider: BuiltInProvider {
             headers: headers
         )
 
-        let windows = Self.poolWindows(body) ?? Self.legacyWindows(body)
+        let windows = Self.windows(from: body)
         guard !windows.isEmpty else {
             throw ProviderError.badResponse("Kimi 没有返回额度信息")
         }
         return ProviderUsage.make(id: id, windows: windows)
+    }
+
+    static func windows(from body: [String: Any]) -> [UsageWindow] {
+        poolWindows(body) ?? legacyWindows(body)
     }
 
     /// Newer shape: `usages.limit_5h / limit_7d / limit_month_total` ratios.

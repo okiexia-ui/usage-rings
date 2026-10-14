@@ -209,8 +209,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let providers = visibleProviders
         let layout = SideLayout(size: settings.ringSize, showLabels: settings.showLabels, rowCount: providers.count)
-        let expanded = !settings.isCollapsed && providers.contains { $0.id == store.expandedID }
-        let size = layout.panelSize(collapsed: settings.isCollapsed, expanded: expanded)
+        let expanded = settings.isCollapsed ? nil : providers.first { $0.id == store.expandedID }
+        let cardHeight = expanded.map {
+            DetailCard.estimatedHeight(for: $0, hasRecommendation: Recommendation.pick(providers) != nil)
+        }
+        let size = layout.panelSize(collapsed: settings.isCollapsed, cardHeight: cardHeight)
 
         let visible = screen.visibleFrame
         let inset = settings.isCollapsed ? 0 : SideLayout.screenInset
@@ -393,7 +396,13 @@ func renderSnapshots(to directory: URL, providers: [ProviderUsage]) throws {
         store.load(providers, updatedAt: .now)
         store.pinnedID = pinned.flatMap { providers.indices.contains($0) ? providers[$0].id : nil }
         let layout = SideLayout(size: size, showLabels: true, rowCount: providers.count)
-        let panel = layout.panelSize(collapsed: collapsed, expanded: store.pinnedID != nil)
+        let pinnedProvider = providers.first { $0.id == store.pinnedID }
+        let panel = layout.panelSize(
+            collapsed: collapsed,
+            cardHeight: pinnedProvider.map {
+                DetailCard.estimatedHeight(for: $0, hasRecommendation: Recommendation.pick(providers) != nil)
+            }
+        )
         try write(name, size: panel, SideRingsView(store: store, settings: settings, actions: RingsActions()))
     }
 
@@ -435,10 +444,22 @@ if let flag = CommandLine.arguments.firstIndex(of: "--snapshot"),
             semaphore.signal()
         }
         semaphore.wait()
-        let providers = try fetched.get()
+        let providers = UsageStore.attributingSessions(try fetched.get())
         for provider in providers {
-            let windows = provider.windows.map { "\($0.label) \(Int($0.usedPercent.rounded()))%" }.joined(separator: ", ")
+            let windows = provider.windows.map { window -> String in
+                var text = "\(window.label) \(Int(window.usedPercent.rounded()))%"
+                if let pace = Pace.of(window) {
+                    text += pace.runsOutIn.map { " (≈\(Int($0 / 60))分钟后用完)" } ?? " (撑得到重置, 预期\(Int(pace.expectedPercent))%)"
+                }
+                return text
+            }.joined(separator: ", ")
             print("\(provider.name): \(windows.isEmpty ? (provider.error ?? "-") : windows)")
+            for share in provider.sessionShares.prefix(4) {
+                print("    \(share.name): \(Int((share.share * 100).rounded()))%")
+            }
+        }
+        if let pick = Recommendation.pick(providers) {
+            print("推荐下一个用: \(pick.name)")
         }
         try renderSnapshots(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1]), providers: providers)
         exit(0)

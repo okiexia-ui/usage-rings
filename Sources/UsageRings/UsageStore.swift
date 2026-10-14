@@ -33,6 +33,8 @@ struct ProviderUsage: Identifiable, Equatable, Codable, Sendable {
     var updatedAt: Date?
     /// The latest refresh failed; windows are the last good reading.
     var isStale = false
+    /// Local sessions' shares of the attributed (shortest) window.
+    var sessionShares: [SessionShare] = []
 
     var id: String { "\(providerID)|\(account ?? "")" }
 
@@ -298,15 +300,18 @@ final class UsageStore: ObservableObject {
 
         let source = dataSource
         Task { [weak self] in
-            let result: Result<[ProviderUsage], any Error> = await Task.detached(priority: .utility) {
+            let result = await Task.detached(priority: .utility) { () async -> Result<[ProviderUsage], any Error> in
+                let fetched: Result<[ProviderUsage], any Error>
                 switch source {
                 case .builtIn:
-                    return .success(await BuiltInProviders.fetchAll())
+                    fetched = .success(await BuiltInProviders.fetchAll())
                 case .codexBar:
-                    return Result { try CodexBarCLI.fetch() }
+                    fetched = Result { try CodexBarCLI.fetch() }
                 case .auto:
-                    return .success(await Self.fetchAuto())
+                    fetched = .success(await Self.fetchAuto())
                 }
+                // Transcript scanning stays off the main actor.
+                return fetched.map(Self.attributingSessions)
             }.value
 
             guard let self else { return }
@@ -328,6 +333,23 @@ final class UsageStore: ObservableObject {
     /// built-in result.
     nonisolated static func fetchAutoForSnapshot() async -> [ProviderUsage] {
         await fetchAuto()
+    }
+
+    /// Adds "which session used it" shares for providers whose agents keep
+    /// local transcripts (Claude Code, Codex).
+    nonisolated static func attributingSessions(_ providers: [ProviderUsage]) -> [ProviderUsage] {
+        providers.map { provider in
+            guard ["claude", "codex"].contains(provider.providerID),
+                  let window = SessionAttribution.attributionWindow(for: provider),
+                  let resetsAt = window.resetsAt,
+                  let minutes = window.windowMinutes else { return provider }
+            var enriched = provider
+            enriched.sessionShares = SessionAttribution.shares(
+                providerID: provider.providerID,
+                since: resetsAt.addingTimeInterval(-TimeInterval(minutes * 60))
+            )
+            return enriched
+        }
     }
 
     nonisolated private static func fetchAuto() async -> [ProviderUsage] {
@@ -355,7 +377,7 @@ final class UsageStore: ObservableObject {
         let result = fresh.map { provider -> ProviderUsage in
             if !provider.windows.isEmpty {
                 var stamped = provider
-                stamped.updatedAt = now
+                stamped.updatedAt = provider.updatedAt ?? now
                 stamped.isStale = false
                 lastGood[provider.providerID] = stamped
                 return stamped
