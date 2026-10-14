@@ -27,7 +27,7 @@ struct ProviderUsage: Identifiable, Equatable, Codable, Sendable {
     let shortName: String
     let account: String?
     /// Longest window first (outer ring → inner ring).
-    let windows: [UsageWindow]
+    var windows: [UsageWindow]
     var error: String?
     /// When these windows were fetched.
     var updatedAt: Date?
@@ -257,7 +257,7 @@ final class UsageStore: ObservableObject {
     var expandedID: String? { isDragging ? nil : (hoveredID ?? pinnedID) }
 
     /// Where usage comes from; the app delegate keeps this in sync with settings.
-    var dataSource: DataSource = .auto {
+    var dataSource: DataSource = .builtIn {
         didSet {
             if dataSource != oldValue { refresh(force: true) }
         }
@@ -331,6 +331,25 @@ final class UsageStore: ObservableObject {
     /// Built-in first; anything it can't read is filled from CodexBar when
     /// CodexBar happens to be installed. Without CodexBar this is just the
     /// built-in result.
+    /// The last good reading, marked stale. A window whose reset time has
+    /// passed since then is known to be back at zero.
+    nonisolated static func staleReading(_ cached: ProviderUsage, error: String?, now: Date) -> ProviderUsage {
+        var stale = cached
+        stale.isStale = true
+        stale.error = error
+        stale.windows = cached.windows.map { window in
+            guard let resetsAt = window.resetsAt, resetsAt <= now else { return window }
+            return UsageWindow(
+                key: window.key,
+                label: window.label,
+                usedPercent: 0,
+                windowMinutes: window.windowMinutes,
+                resetsAt: nil
+            )
+        }
+        return stale
+    }
+
     nonisolated static func fetchAutoForSnapshot() async -> [ProviderUsage] {
         await fetchAuto()
     }
@@ -382,10 +401,8 @@ final class UsageStore: ObservableObject {
                 lastGood[provider.providerID] = stamped
                 return stamped
             }
-            guard var cached = lastGood[provider.providerID] else { return provider }
-            cached.isStale = true
-            cached.error = provider.error
-            return cached
+            guard let cached = lastGood[provider.providerID] else { return provider }
+            return Self.staleReading(cached, error: provider.error, now: now)
         }
         if let data = try? JSONEncoder().encode(lastGood) {
             UserDefaults.standard.set(data, forKey: Self.lastGoodKey)

@@ -123,6 +123,27 @@ struct SettingsView: View {
                     : "用量数据来自 CodexBar（codexbar usage），登录和授权都在 CodexBar 里完成。")
             }
 
+            Section {
+                APIKeyRow(
+                    providerID: "kimi",
+                    title: "Kimi Code API Key",
+                    hint: "Kimi 命令行的登录 15 分钟就过期，填一个 API key 就能一直读到用量。",
+                    link: URL(string: "https://www.kimi.com/code/console"),
+                    onChange: onRefresh
+                )
+                APIKeyRow(
+                    providerID: "opencodego",
+                    title: "OpenCode Go API Key",
+                    hint: "登录过 OpenCode Go 的话会自动读取，一般不用填。",
+                    link: URL(string: "https://opencode.ai/auth"),
+                    onChange: onRefresh
+                )
+            } header: {
+                Text("API Key（可选）")
+            } footer: {
+                Text("只保存在本机 ~/Library/Application Support/UsageRings/keys.json（仅你的账户可读），只发给对应服务的官方接口。")
+            }
+
             Section("其他") {
                 Toggle("开机启动", isOn: Binding(
                     get: { launchAtLogin },
@@ -152,5 +173,75 @@ struct SettingsView: View {
             launchError = error.localizedDescription
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+}
+
+/// One provider's API key: write-only in the UI (a saved key is never shown).
+private struct APIKeyRow: View {
+    let providerID: String
+    let title: String
+    let hint: String
+    let link: URL?
+    let onChange: () -> Void
+
+    @State private var draft = ""
+    @State private var isSaved = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                Spacer()
+                if isSaved {
+                    Label("已保存", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+            HStack {
+                SecureField(isSaved ? "已保存，输入新的可以替换" : "粘贴 API key", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                Button("保存", action: save)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if isSaved {
+                    Button("清除") { store(nil) }
+                }
+            }
+            HStack(spacing: 6) {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let link {
+                    Link("去创建", destination: link)
+                        .font(.caption)
+                }
+            }
+            if let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .onAppear { isSaved = KeyStore.key(for: providerID) != nil }
+    }
+
+    private func save() {
+        let key = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        store(key)
+    }
+
+    private func store(_ key: String?) {
+        do {
+            try KeyStore.setKey(key, for: providerID)
+            draft = ""
+            error = nil
+            isSaved = key != nil
+            onChange()
+        } catch {
+            self.error = "保存失败：\(error.localizedDescription)"
+        }
     }
 }

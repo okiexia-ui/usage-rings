@@ -19,22 +19,22 @@ enum DisplayMode: String, CaseIterable, Identifiable {
 }
 
 enum DataSource: String, CaseIterable, Identifiable, Sendable {
-    case auto, builtIn, codexBar
+    case builtIn, auto, codexBar
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .auto: "自动"
-        case .builtIn: "仅内置"
+        case .builtIn: "内置"
+        case .auto: "内置 + CodexBar"
         case .codexBar: "仅 CodexBar"
         }
     }
 
     var detail: String {
         switch self {
-        case .auto: "先用内置方式读取，读不到的服务再用 CodexBar 补。没装 CodexBar 也能用。"
         case .builtIn: "直接读取本机已登录的 Codex、Claude Code、OpenCode Go、Kimi Code，不需要安装其他软件。"
+        case .auto: "先用内置方式，读不到的再用 CodexBar 补（需要已安装 CodexBar）。"
         case .codexBar: "通过 CodexBar 命令行读取，支持 100 多家服务，需要先安装并配置 CodexBar。"
         }
     }
@@ -137,7 +137,7 @@ final class RingsSettings: ObservableObject {
         isCollapsed = defaults.bool(forKey: "isCollapsed")
         hiddenProviders = defaults.stringArray(forKey: "hiddenProviders") ?? []
         refreshMinutes = defaults.object(forKey: "refreshMinutes") as? Double ?? 2.5
-        dataSource = DataSource(rawValue: defaults.string(forKey: "dataSource") ?? "") ?? .auto
+        dataSource = DataSource(rawValue: defaults.string(forKey: "dataSource") ?? "") ?? .builtIn
     }
 
     var refreshInterval: Duration {

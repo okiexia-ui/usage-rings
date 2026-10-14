@@ -278,3 +278,46 @@ struct ProviderParsingTests {
         #expect(JWT.email(token) == "dev@example.com")
     }
 }
+
+// MARK: - Stale readings and saved keys
+
+struct StaleReadingTests {
+    @Test func windowsPastTheirResetDropToZero() {
+        let cached = provider("kimi", [
+            window(12, minutes: 10_080, resetsIn: 3_600, key: "secondary"),
+            window(80, minutes: 300, resetsIn: -60, key: "primary"),
+        ])
+        let stale = UsageStore.staleReading(cached, error: "登录过期", now: now)
+        #expect(stale.isStale)
+        #expect(stale.error == "登录过期")
+        #expect(stale.windows.map(\.usedPercent) == [12, 0])
+        #expect(stale.windows[0].resetsAt != nil)
+        #expect(stale.windows[1].resetsAt == nil)
+    }
+}
+
+@Suite(.serialized)
+struct KeyStoreTests {
+    @Test func savesClearsAndKeepsTheFilePrivate() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("usage-rings-keys-\(UUID().uuidString)/keys.json")
+        KeyStore.fileURLOverride = file
+        defer {
+            KeyStore.fileURLOverride = nil
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
+
+        #expect(KeyStore.key(for: "kimi") == nil)
+        try KeyStore.setKey("  sk-test-123  ", for: "kimi")
+        try KeyStore.setKey("oc-key", for: "opencodego")
+        #expect(KeyStore.key(for: "kimi") == "sk-test-123")
+        #expect(KeyStore.key(for: "opencodego") == "oc-key")
+
+        let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        #expect(permissions == 0o600)
+
+        try KeyStore.setKey(nil, for: "kimi")
+        #expect(KeyStore.key(for: "kimi") == nil)
+        #expect(KeyStore.key(for: "opencodego") == "oc-key")
+    }
+}

@@ -24,12 +24,15 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 | Codex | `~/.codex/auth.json` | `chatgpt.com/backend-api/wham/usage` |
 | Claude | 钥匙串 `Claude Code-credentials`（Claude Code 命令行登录） | `api.anthropic.com/api/oauth/usage` |
 | OpenCode Go | `~/.local/share/opencode/auth.json` | `opencode.ai/zen/go/v1/usage` |
-| Kimi Code | `~/.kimi-code/credentials/kimi-code.json` | `api.kimi.com/coding/v1/usages` |
+| Kimi Code | 设置里填的 Kimi Code API Key，或 `~/.kimi-code/credentials/kimi-code.json` | `api.kimi.com/coding/v1/usages` |
 
 - 只**读取**各家官方工具已经保存在本机的登录，从不刷新或改写令牌；令牌只发给对应的官方 HTTPS 地址，并且拒绝重定向。
 - 这些接口都是各家没有公开文档的内部接口，以后可能随时变化。
 - 会话统计会逐行解析 `~/.claude/projects` 和 `~/.codex/sessions` 里的会话记录，但只取 token 数、时间和项目目录，对话内容不保存、不上传。
-- 可选：如果装了 [CodexBar](https://github.com/steipete/CodexBar)，"自动"模式会用它补上内置方式读不到的服务（支持 100 多家）。不装也能正常使用。
+- 默认只用内置方式，**不需要安装任何其他软件**。
+- Kimi 命令行的登录 15 分钟就过期，只在你使用 Kimi 时有效；想一直读到，在设置里填一个 [Kimi Code API Key](https://www.kimi.com/code/console)。API key 只保存在本机 `~/Library/Application Support/UsageRings/keys.json`（权限 600）。
+- 某家暂时读不到时，显示最后一次的读数并标明时间；期间已经过了重置时间的额度会直接归零。
+- 可选：装了 [CodexBar](https://github.com/steipete/CodexBar) 的话，可以在设置里把数据来源切到"内置 + CodexBar"，让它补上内置读不到的服务（支持 100 多家）。
 
 ## 安装与构建
 

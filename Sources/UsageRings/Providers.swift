@@ -229,7 +229,7 @@ struct OpenCodeGoProvider: BuiltInProvider {
             return env
         }
         let entry = JSONFile.object(at: authURL)?["opencode-go"] as? [String: Any]
-        return (entry?["key"] as? String)?.nonEmpty
+        return (entry?["key"] as? String)?.nonEmpty ?? KeyStore.key(for: id)
     }
 
     func isConfigured() -> Bool {
@@ -301,19 +301,30 @@ struct KimiProvider: BuiltInProvider {
         home.appendingPathComponent("credentials/kimi-code.json")
     }
 
-    func isConfigured() -> Bool {
-        FileManager.default.fileExists(atPath: credentialsURL.path)
+    /// A Kimi Code API key never expires, unlike the CLI's 15-minute access
+    /// token, so it is preferred when the user has created one.
+    private var apiKey: String? {
+        ProcessInfo.processInfo.environment["KIMI_CODE_API_KEY"]?.nonEmpty ?? KeyStore.key(for: id)
     }
 
-    func fetch() async throws -> ProviderUsage {
+    func isConfigured() -> Bool {
+        apiKey != nil || FileManager.default.fileExists(atPath: credentialsURL.path)
+    }
+
+    private func cliAccessToken() throws -> String {
         guard let credential = JSONFile.object(at: credentialsURL),
               let accessToken = (credential["access_token"] as? String)?.nonEmpty else {
-            throw ProviderError.notSignedIn("没有找到 Kimi Code 登录，请先运行 kimi 登录")
+            throw ProviderError.notSignedIn("没有找到 Kimi Code 登录：运行 kimi 登录，或在设置里填 Kimi Code API Key")
         }
         if let expiresAt = Num.double(credential["expires_at"]),
            Date(timeIntervalSince1970: expiresAt) < .now {
-            throw ProviderError.expired("Kimi 登录已过期，运行一次 kimi 就会自动续期")
+            throw ProviderError.expired("Kimi 命令行登录只在使用时有效；在设置里填 Kimi Code API Key 就能一直读到")
         }
+        return accessToken
+    }
+
+    func fetch() async throws -> ProviderUsage {
+        let accessToken = try apiKey ?? cliAccessToken()
 
         // The Code API expects the same device identity headers as the CLI.
         var headers = HTTP.baseHeaders(token: accessToken)
@@ -479,6 +490,39 @@ enum HTTP {
             throw ProviderError.badResponse("返回的数据格式不对")
         }
         return object
+    }
+}
+
+/// API keys the user pastes into Settings, for providers whose own tools
+/// don't leave a long-lived login on disk. Stored like the agents' CLIs store
+/// theirs: a JSON file only this user can read.
+enum KeyStore {
+    /// Tests point this at a temporary file.
+    nonisolated(unsafe) static var fileURLOverride: URL?
+
+    static var fileURL: URL {
+        if let fileURLOverride { return fileURLOverride }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/UsageRings", isDirectory: true)
+            .appendingPathComponent("keys.json")
+    }
+
+    static func key(for providerID: String) -> String? {
+        (JSONFile.object(at: fileURL)?[providerID] as? String)?.nonEmpty
+    }
+
+    static func setKey(_ key: String?, for providerID: String) throws {
+        var keys = (JSONFile.object(at: fileURL) as? [String: String]) ?? [:]
+        keys[providerID] = key?.nonEmpty
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let data = try JSONSerialization.data(withJSONObject: keys, options: [.sortedKeys])
+        try data.write(to: fileURL, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 }
 
