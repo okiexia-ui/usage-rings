@@ -285,6 +285,8 @@ struct UsageRing: View {
             }
         }
         .frame(width: size, height: size)
+        .opacity(provider.isStale ? 0.45 : 1)
+        .saturation(provider.isStale ? 0.3 : 1)
     }
 
     private func centerText(_ peak: UsageWindow) -> some View {
@@ -365,11 +367,16 @@ struct DetailCard: View {
                     }
                 }
 
-                if let error = provider.error, provider.windows.isEmpty {
-                    Text(error)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .fixedSize(horizontal: false, vertical: true)
+                if let error = provider.error, provider.windows.isEmpty || provider.isStale {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.orange.opacity(0.85))
+                        Text(staleText(error, now: context.date))
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 ForEach(provider.windows) { window in
@@ -416,6 +423,11 @@ struct DetailCard: View {
         }
     }
 
+    private func staleText(_ error: String, now: Date) -> String {
+        guard provider.isStale, let updatedAt = provider.updatedAt else { return error }
+        return "\(error)。下面是 \(Self.relative(updatedAt, now: now))的数据。"
+    }
+
     @ViewBuilder
     private func footer(now: Date) -> some View {
         let metric = appearance.metric == .used ? "显示已用" : "显示剩余"
@@ -446,7 +458,8 @@ struct DetailCard: View {
         let seconds = Int(now.timeIntervalSince(date))
         if seconds < 60 { return "刚刚" }
         if seconds < 3_600 { return "\(seconds / 60) 分钟前" }
-        return "\(seconds / 3_600) 小时前"
+        if seconds < 86_400 { return "\(seconds / 3_600) 小时前" }
+        return "\(seconds / 86_400) 天前"
     }
 }
 

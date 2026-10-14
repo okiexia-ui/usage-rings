@@ -148,10 +148,11 @@ struct IslandView: View {
                 .frame(width: IslandLayout.expandedRing, height: IslandLayout.expandedRing)
                 .padding(.bottom, 1)
 
-            Text(provider.shortName)
+            Text(provider.isStale ? "\(provider.shortName) · 旧" : provider.shortName)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.white.opacity(provider.isStale ? 0.5 : 0.85))
                 .lineLimit(1)
+                .help(provider.error ?? "")
 
             if provider.windows.isEmpty {
                 Text("读取失败")

@@ -48,6 +48,14 @@ struct SettingsView: View {
             }
 
             Section("数据") {
+                Picker("数据来源", selection: $settings.dataSource) {
+                    ForEach(DataSource.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(settings.dataSource.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("圆环表示", selection: $settings.metric) {
                     ForEach(RingMetric.allCases) { Text($0.title).tag($0) }
                 }
@@ -80,7 +88,9 @@ struct SettingsView: View {
 
             Section {
                 if store.providers.isEmpty {
-                    Text("还没有读到账号。先在 CodexBar 里打开要监控的服务。")
+                    Text(settings.dataSource != .codexBar
+                        ? "没有找到已登录的 agent。登录 Codex、Claude Code、OpenCode Go 或 Kimi Code 后会自动出现。"
+                        : "还没有读到账号。先在 CodexBar 里打开要监控的服务。")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(store.providers) { provider in
@@ -102,11 +112,15 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Button("在 CodexBar 里添加或管理账号…", action: onOpenCodexBar)
+                if settings.dataSource != .builtIn {
+                    Button("在 CodexBar 里添加或管理账号…", action: onOpenCodexBar)
+                }
             } header: {
                 Text("账号")
             } footer: {
-                Text("用量数据来自 CodexBar（codexbar usage），登录和授权都在 CodexBar 里完成。")
+                Text(settings.dataSource != .codexBar
+                    ? "只读取各家官方工具保存在本机的登录，直接发给各自的官方接口，不经过任何第三方。"
+                    : "用量数据来自 CodexBar（codexbar usage），登录和授权都在 CodexBar 里完成。")
             }
 
             Section("其他") {

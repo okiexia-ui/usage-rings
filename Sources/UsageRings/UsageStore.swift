@@ -1,7 +1,7 @@
 import Foundation
 
 /// One quota window (5-hour session, weekly, monthly…) for a provider account.
-struct UsageWindow: Identifiable, Equatable, Sendable {
+struct UsageWindow: Identifiable, Equatable, Codable, Sendable {
     let key: String
     let label: String
     let usedPercent: Double
@@ -21,14 +21,18 @@ struct UsageWindow: Identifiable, Equatable, Sendable {
     }
 }
 
-struct ProviderUsage: Identifiable, Equatable, Sendable {
+struct ProviderUsage: Identifiable, Equatable, Codable, Sendable {
     let providerID: String
     let name: String
     let shortName: String
     let account: String?
     /// Longest window first (outer ring → inner ring).
     let windows: [UsageWindow]
-    let error: String?
+    var error: String?
+    /// When these windows were fetched.
+    var updatedAt: Date?
+    /// The latest refresh failed; windows are the last good reading.
+    var isStale = false
 
     var id: String { "\(providerID)|\(account ?? "")" }
 
@@ -159,16 +163,7 @@ enum CodexBarCLI {
             return nil
         }
 
-        let names = displayNames[providerID]
-        let fallbackName = providerID.prefix(1).uppercased() + providerID.dropFirst()
-        return ProviderUsage(
-            providerID: providerID,
-            name: names?.name ?? fallbackName,
-            shortName: names?.short ?? fallbackName,
-            account: account,
-            windows: windows.sorted { $0.spanRank > $1.spanRank },
-            error: error
-        )
+        return ProviderUsage.make(id: providerID, account: account, windows: windows, error: error)
     }
 
     static func windowLabel(minutes: Int?, fallback: String?, key: String) -> String {
@@ -188,7 +183,28 @@ enum CodexBarCLI {
         }
     }
 
-    private static let displayNames: [String: (name: String, short: String)] = [
+    static func shortError(_ message: String?) -> String {
+        guard let message = message?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty else { return "暂时读不到" }
+        let first = message
+            .split(whereSeparator: { $0 == "." || $0 == "\n" || $0 == "。" })
+            .first
+            .map(String.init) ?? message
+        return first.count > 90 ? String(first.prefix(87)) + "…" : first
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        Num.double(value)
+    }
+
+    private static func parseDate(_ string: String) -> Date? {
+        ISODate.parse(string)
+    }
+}
+
+/// Display names shared by the built-in and CodexBar sources.
+enum ProviderCatalog {
+    private static let names: [String: (name: String, short: String)] = [
         "codex": ("Codex", "Codex"),
         "openai": ("OpenAI", "OpenAI"),
         "claude": ("Claude", "Claude"),
@@ -210,30 +226,16 @@ enum CodexBarCLI {
         "factory": ("Droid", "Droid"),
     ]
 
-    static func shortError(_ message: String?) -> String {
-        guard let message = message?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !message.isEmpty else { return "暂时读不到" }
-        let first = message
-            .split(whereSeparator: { $0 == "." || $0 == "\n" || $0 == "。" })
-            .first
-            .map(String.init) ?? message
-        return first.count > 90 ? String(first.prefix(87)) + "…" : first
+    static func name(for id: String) -> String {
+        names[id]?.name ?? fallback(id)
     }
 
-    private static func number(_ value: Any?) -> Double? {
-        switch value {
-        case let value as Double: value
-        case let value as Int: Double(value)
-        case let value as NSNumber: value.doubleValue
-        default: nil
-        }
+    static func shortName(for id: String) -> String {
+        names[id]?.short ?? fallback(id)
     }
 
-    private static func parseDate(_ string: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) { return date }
-        return ISO8601DateFormatter().date(from: string)
+    private static func fallback(_ id: String) -> String {
+        id.prefix(1).uppercased() + id.dropFirst()
     }
 }
 
@@ -252,8 +254,24 @@ final class UsageStore: ObservableObject {
 
     var expandedID: String? { isDragging ? nil : (hoveredID ?? pinnedID) }
 
+    /// Where usage comes from; the app delegate keeps this in sync with settings.
+    var dataSource: DataSource = .auto {
+        didSet {
+            if dataSource != oldValue { refresh(force: true) }
+        }
+    }
+
     private var pollTask: Task<Void, Never>?
     private var pollInterval: Duration?
+
+    private static let lastGoodKey = "lastGoodUsage"
+    /// Last successful reading per provider, kept across launches so an
+    /// expired login still shows where that quota stood.
+    private var lastGood: [String: ProviderUsage] = {
+        guard let data = UserDefaults.standard.data(forKey: UsageStore.lastGoodKey),
+              let decoded = try? JSONDecoder().decode([String: ProviderUsage].self, from: data) else { return [:] }
+        return decoded
+    }()
 
     /// Snapshot mode only: render a fixed dataset without polling.
     func load(_ providers: [ProviderUsage], updatedAt: Date) {
@@ -274,20 +292,28 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    func refresh() {
-        guard !isLoading else { return }
+    func refresh(force: Bool = false) {
+        guard force || !isLoading else { return }
         isLoading = true
 
+        let source = dataSource
         Task { [weak self] in
-            let result = await Task.detached(priority: .utility) {
-                Result { try CodexBarCLI.fetch() }
+            let result: Result<[ProviderUsage], any Error> = await Task.detached(priority: .utility) {
+                switch source {
+                case .builtIn:
+                    return .success(await BuiltInProviders.fetchAll())
+                case .codexBar:
+                    return Result { try CodexBarCLI.fetch() }
+                case .auto:
+                    return .success(await Self.fetchAuto())
+                }
             }.value
 
             guard let self else { return }
             self.isLoading = false
             switch result {
             case let .success(providers):
-                self.providers = providers
+                self.providers = self.fillingFromLastGood(providers)
                 self.lastUpdated = .now
                 self.lastError = nil
             case let .failure(error):
@@ -295,5 +321,53 @@ final class UsageStore: ObservableObject {
                 self.lastError = error.localizedDescription
             }
         }
+    }
+
+    /// Built-in first; anything it can't read is filled from CodexBar when
+    /// CodexBar happens to be installed. Without CodexBar this is just the
+    /// built-in result.
+    nonisolated static func fetchAutoForSnapshot() async -> [ProviderUsage] {
+        await fetchAuto()
+    }
+
+    nonisolated private static func fetchAuto() async -> [ProviderUsage] {
+        async let builtIn = BuiltInProviders.fetchAll()
+        let codexBar: [ProviderUsage] = CodexBarCLI.executableURL() == nil
+            ? []
+            : ((try? CodexBarCLI.fetch()) ?? [])
+        let own = await builtIn
+
+        var merged: [ProviderUsage] = own.map { mine in
+            guard mine.windows.isEmpty,
+                  let theirs = codexBar.first(where: { $0.providerID == mine.providerID && !$0.windows.isEmpty })
+            else { return mine }
+            return theirs
+        }
+        let ownIDs = Set(own.map(\.providerID))
+        merged += codexBar.filter { !ownIDs.contains($0.providerID) }
+        return merged
+    }
+
+    /// Stamps fresh readings and swaps a failed provider for its last good
+    /// reading, marked stale, so the ring keeps its place.
+    private func fillingFromLastGood(_ fresh: [ProviderUsage]) -> [ProviderUsage] {
+        let now = Date.now
+        let result = fresh.map { provider -> ProviderUsage in
+            if !provider.windows.isEmpty {
+                var stamped = provider
+                stamped.updatedAt = now
+                stamped.isStale = false
+                lastGood[provider.providerID] = stamped
+                return stamped
+            }
+            guard var cached = lastGood[provider.providerID] else { return provider }
+            cached.isStale = true
+            cached.error = provider.error
+            return cached
+        }
+        if let data = try? JSONEncoder().encode(lastGood) {
+            UserDefaults.standard.set(data, forKey: Self.lastGoodKey)
+        }
+        return result
     }
 }

@@ -1,0 +1,52 @@
+# 用量圈 · Usage Rings
+
+A tiny macOS widget that shows how much of each AI coding plan you've used: one ring per agent, docked to the edge of the screen or wrapped around the MacBook notch.
+
+一个 macOS 小工具：每个 AI 编程订阅一个圆环，贴在屏幕边上或刘海两侧，一眼看到 Codex、Claude、OpenCode Go、Kimi 还剩多少额度。
+
+## 功能
+
+- **侧边圆环**：贴在屏幕左边或右边，可以拖动；拖过屏幕中线会自动吸附到另一边，位置会记住
+- **灵动岛**：刘海两侧显示迷你圆环，鼠标移上去会展开，显示全部详情
+- **收起**：点一下缩成屏幕边缘的一条细竖条，彩色小点表示各家状态
+- **详情卡**：悬停或点击圆环，显示每个额度（5 小时 / 周 / 月）的用量和重置倒计时
+- **可定制**：大中小三种尺寸；显示"已用"或"剩余"；红绿灯配色或品牌色；透明度；单独隐藏某家；刷新间隔；开机启动
+- **登录失效时**：继续显示最后一次读到的数据，并标明是什么时候的
+
+## 数据来源
+
+| 服务 | 读取的本机登录 | 请求的接口 |
+|---|---|---|
+| Codex | `~/.codex/auth.json` | `chatgpt.com/backend-api/wham/usage` |
+| Claude | 钥匙串 `Claude Code-credentials`（Claude Code 命令行登录） | `api.anthropic.com/api/oauth/usage` |
+| OpenCode Go | `~/.local/share/opencode/auth.json` | `opencode.ai/zen/go/v1/usage` |
+| Kimi Code | `~/.kimi-code/credentials/kimi-code.json` | `api.kimi.com/coding/v1/usages` |
+
+- 只**读取**各家官方工具已经保存在本机的登录，从不刷新或改写令牌；令牌只发给对应的官方 HTTPS 地址，并且拒绝重定向。
+- 这些接口都是各家没有公开文档的内部接口，以后可能随时变化。
+- 可选：如果装了 [CodexBar](https://github.com/steipete/CodexBar)，"自动"模式会用它补上内置方式读不到的服务（支持 100 多家）。不装也能正常使用。
+
+## 安装与构建
+
+需要 macOS 14+、Xcode 16+（Swift 6）。
+
+```bash
+zsh scripts/package.sh            # 编译、安装到 ~/Applications/用量圈.app 并启动
+zsh scripts/package.sh --no-launch
+```
+
+右键圆环可以刷新、收起、切换左右或打开设置。
+
+开发时可以用截图模式检查布局，它用真实数据把所有样式渲染成 PNG：
+
+```bash
+swift build -c release && .build/release/UsageRings --snapshot /tmp/rings
+```
+
+## 致谢
+
+各家用量接口的地址和格式参考了 [CodexBar](https://github.com/steipete/CodexBar)（MIT）的文档和实现。本项目没有包含 CodexBar 的代码。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。

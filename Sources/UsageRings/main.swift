@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         installMouseTracking()
         layoutAll()
+        store.dataSource = settings.dataSource
         store.start(every: settings.refreshInterval)
     }
 
@@ -178,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func settingsChanged() {
+        store.dataSource = settings.dataSource
         store.start(every: settings.refreshInterval)
         if !settings.displayMode.showsIsland {
             store.isIslandHovered = false
@@ -358,8 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 /// without opening a window. Handy for checking design when screen recording
 /// isn't granted.
 @MainActor
-func renderSnapshots(to directory: URL) throws {
-    let providers = try CodexBarCLI.fetch()
+func renderSnapshots(to directory: URL, providers: [ProviderUsage]) throws {
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let backdrop = Color(red: 0.36, green: 0.42, blue: 0.52)
 
@@ -421,7 +422,25 @@ func renderSnapshots(to directory: URL) throws {
 if let flag = CommandLine.arguments.firstIndex(of: "--snapshot"),
    CommandLine.arguments.indices.contains(flag + 1) {
     do {
-        try renderSnapshots(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))
+        let source: DataSource = CommandLine.arguments.contains("--codexbar") ? .codexBar
+            : CommandLine.arguments.contains("--builtin") ? .builtIn : .auto
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var fetched: Result<[ProviderUsage], any Error> = .success([])
+        Task.detached {
+            switch source {
+            case .builtIn: fetched = .success(await BuiltInProviders.fetchAll())
+            case .codexBar: fetched = Result { try CodexBarCLI.fetch() }
+            case .auto: fetched = .success(await UsageStore.fetchAutoForSnapshot())
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        let providers = try fetched.get()
+        for provider in providers {
+            let windows = provider.windows.map { "\($0.label) \(Int($0.usedPercent.rounded()))%" }.joined(separator: ", ")
+            print("\(provider.name): \(windows.isEmpty ? (provider.error ?? "-") : windows)")
+        }
+        try renderSnapshots(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1]), providers: providers)
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("snapshot failed: \(error.localizedDescription)\n".utf8))

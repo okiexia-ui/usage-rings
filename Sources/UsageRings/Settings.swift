@@ -18,6 +18,28 @@ enum DisplayMode: String, CaseIterable, Identifiable {
     var showsIsland: Bool { self != .side }
 }
 
+enum DataSource: String, CaseIterable, Identifiable, Sendable {
+    case auto, builtIn, codexBar
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .auto: "自动"
+        case .builtIn: "仅内置"
+        case .codexBar: "仅 CodexBar"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .auto: "先用内置方式读取，读不到的服务再用 CodexBar 补。没装 CodexBar 也能用。"
+        case .builtIn: "直接读取本机已登录的 Codex、Claude Code、OpenCode Go、Kimi Code，不需要安装其他软件。"
+        case .codexBar: "通过 CodexBar 命令行读取，支持 100 多家服务，需要先安装并配置 CodexBar。"
+        }
+    }
+}
+
 enum DockSide: String, CaseIterable, Identifiable {
     case left, right
 
@@ -97,6 +119,7 @@ final class RingsSettings: ObservableObject {
     @Published var isCollapsed: Bool { didSet { store(isCollapsed, "isCollapsed") } }
     @Published var hiddenProviders: [String] { didSet { store(hiddenProviders, "hiddenProviders") } }
     @Published var refreshMinutes: Double { didSet { store(refreshMinutes, "refreshMinutes") } }
+    @Published var dataSource: DataSource { didSet { store(dataSource.rawValue, "dataSource") } }
 
     private let defaults: UserDefaults
 
@@ -114,6 +137,7 @@ final class RingsSettings: ObservableObject {
         isCollapsed = defaults.bool(forKey: "isCollapsed")
         hiddenProviders = defaults.stringArray(forKey: "hiddenProviders") ?? []
         refreshMinutes = defaults.object(forKey: "refreshMinutes") as? Double ?? 2.5
+        dataSource = DataSource(rawValue: defaults.string(forKey: "dataSource") ?? "") ?? .auto
     }
 
     var refreshInterval: Duration {
