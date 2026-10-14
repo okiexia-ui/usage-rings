@@ -359,6 +359,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 // MARK: - Snapshots
 
+/// Made-up readings for README screenshots, so no real account, project or
+/// usage ends up in the repository.
+enum DemoData {
+    static func providers(now: Date = .now) -> [ProviderUsage] {
+        func window(_ key: String, _ used: Double, _ minutes: Int, resetsIn hours: Double) -> UsageWindow {
+            UsageWindow.make(key: key, usedPercent: used, minutes: minutes, resetsAt: now.addingTimeInterval(hours * 3_600))
+        }
+        var claude = ProviderUsage.make(id: "claude", account: "Claude Pro", windows: [
+            window("primary", 72, 300, resetsIn: 2.2),
+            window("secondary", 58, 10_080, resetsIn: 70),
+        ])
+        claude.sessionShares = [
+            SessionShare(id: "a", name: "my-app", share: 0.61, weightedTokens: 610),
+            SessionShare(id: "b", name: "website", share: 0.27, weightedTokens: 270),
+            SessionShare(id: "c", name: "scripts", share: 0.12, weightedTokens: 120),
+        ]
+        var codex = ProviderUsage.make(id: "codex", account: "dev@example.com", windows: [
+            window("secondary", 34, 10_080, resetsIn: 90),
+        ])
+        codex.sessionShares = [
+            SessionShare(id: "d", name: "my-app", share: 0.8, weightedTokens: 800),
+            SessionShare(id: "e", name: "data-tools", share: 0.2, weightedTokens: 200),
+        ]
+        return [
+            codex,
+            claude,
+            ProviderUsage.make(id: "opencodego", windows: [
+                window("primary", 8, 300, resetsIn: 3.5),
+                window("secondary", 41, 10_080, resetsIn: 100),
+                window("tertiary", 40, 43_200, resetsIn: 380),
+            ]),
+            ProviderUsage.make(id: "kimi", windows: [
+                window("primary", 15, 300, resetsIn: 1.5),
+                window("secondary", 22, 10_080, resetsIn: 120),
+            ]),
+        ]
+    }
+}
+
 /// `UsageRings --snapshot <dir>`: fetch once and write PNGs of every layout
 /// without opening a window. Handy for checking design when screen recording
 /// isn't granted.
@@ -434,8 +473,13 @@ if let flag = CommandLine.arguments.firstIndex(of: "--snapshot"),
         let source: DataSource = CommandLine.arguments.contains("--codexbar") ? .codexBar
             : CommandLine.arguments.contains("--builtin") ? .builtIn : .auto
         let semaphore = DispatchSemaphore(value: 0)
+        let isDemo = CommandLine.arguments.contains("--demo")
         nonisolated(unsafe) var fetched: Result<[ProviderUsage], any Error> = .success([])
         Task.detached {
+            if isDemo {
+                semaphore.signal()
+                return
+            }
             switch source {
             case .builtIn: fetched = .success(await BuiltInProviders.fetchAll())
             case .codexBar: fetched = Result { try CodexBarCLI.fetch() }
@@ -444,7 +488,9 @@ if let flag = CommandLine.arguments.firstIndex(of: "--snapshot"),
             semaphore.signal()
         }
         semaphore.wait()
-        let providers = UsageStore.attributingSessions(try fetched.get())
+        let providers = CommandLine.arguments.contains("--demo")
+            ? DemoData.providers()
+            : UsageStore.attributingSessions(try fetched.get())
         for provider in providers {
             let windows = provider.windows.map { window -> String in
                 var text = "\(window.label) \(Int(window.usedPercent.rounded()))%"

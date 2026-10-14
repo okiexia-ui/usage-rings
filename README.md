@@ -2,7 +2,18 @@
 
 A tiny macOS widget that shows how much of each AI coding plan you've used: one ring per agent, docked to the edge of the screen or wrapped around the MacBook notch.
 
-一个 macOS 小工具：每个 AI 编程订阅一个圆环，贴在屏幕边上或刘海两侧，一眼看到 Codex、Claude、OpenCode Go、Kimi 还剩多少额度。
+一个 macOS 小工具：每个 AI 编程订阅一个圆环，贴在屏幕边上或刘海两侧，一眼看到 Codex、Claude、OpenCode Go、Kimi 还剩多少额度。完全在本机运行，不需要安装其他软件。
+
+![用量圈：侧边圆环、详情卡、收起状态和灵动岛（示例数据）](docs/screenshot.png)
+
+## 下载安装
+
+1. 到 [Releases](../../releases/latest) 下载 `UsageRings-v*-macOS.zip`，解压后把「用量圈」拖进「应用程序」。支持 Apple 芯片和 Intel，需要 macOS 14 或更新版本。
+2. 这个 App 没有经过苹果公证，第一次打开会被系统拦下：打开「系统设置 → 隐私与安全性」，在下方找到「用量圈」，点「仍要打开」。也可以在终端执行：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/用量圈.app
+   ```
+3. 打开后圆环出现在屏幕左侧。右键圆环 →「设置…」可以调整外观、填写 Kimi Code API Key、打开开机启动。
 
 ## 功能
 
@@ -34,13 +45,14 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 - 某家暂时读不到时，显示最后一次的读数并标明时间；期间已经过了重置时间的额度会直接归零。
 - 可选：装了 [CodexBar](https://github.com/steipete/CodexBar) 的话，可以在设置里把数据来源切到"内置 + CodexBar"，让它补上内置读不到的服务（支持 100 多家）。
 
-## 安装与构建
+## 从源码构建
 
 需要 macOS 14+、Xcode 16+（Swift 6）。
 
 ```bash
 zsh scripts/package.sh            # 编译、安装到 ~/Applications/用量圈.app 并启动
 zsh scripts/package.sh --no-launch
+zsh scripts/release.sh            # 跑测试，打包通用版到 dist/ 并生成发布用的 zip
 ```
 
 右键圆环可以刷新、收起、切换左右或打开设置。
@@ -48,7 +60,8 @@ zsh scripts/package.sh --no-launch
 开发时可以用截图模式检查布局，它用真实数据把所有样式渲染成 PNG：
 
 ```bash
-swift build -c release && .build/release/UsageRings --snapshot /tmp/rings
+swift build -c release && .build/release/UsageRings --snapshot /tmp/rings          # 真实数据
+swift build -c release && .build/release/UsageRings --snapshot /tmp/rings --demo   # 示例数据
 swift test
 ```
 
