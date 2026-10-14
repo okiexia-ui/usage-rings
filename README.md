@@ -28,7 +28,7 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 
 - 只**读取**各家官方工具已经保存在本机的登录，从不刷新或改写令牌；令牌只发给对应的官方 HTTPS 地址，并且拒绝重定向。
 - 这些接口都是各家没有公开文档的内部接口，以后可能随时变化。
-- 会话统计只读取 `~/.claude/projects` 和 `~/.codex/sessions` 里的 token 数和项目目录，不读对话内容。
+- 会话统计会逐行解析 `~/.claude/projects` 和 `~/.codex/sessions` 里的会话记录，但只取 token 数、时间和项目目录，对话内容不保存、不上传。
 - 可选：如果装了 [CodexBar](https://github.com/steipete/CodexBar)，"自动"模式会用它补上内置方式读不到的服务（支持 100 多家）。不装也能正常使用。
 
 ## 安装与构建
