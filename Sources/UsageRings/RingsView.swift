@@ -1,213 +1,365 @@
 import AppKit
 import SwiftUI
 
-/// Fixed metrics so the panel can be sized before SwiftUI lays out.
-enum RingsLayout {
-    static let ringSize: CGFloat = 60
-    static let lineWidth: CGFloat = 4.5
-    static let ringGap: CGFloat = 1.5
-    static let labelHeight: CGFloat = 14
-    static let rowSpacing: CGFloat = 12
-    static let columnPadding: CGFloat = 12
-    static let columnWidth: CGFloat = ringSize + columnPadding * 2
-    static let cardGap: CGFloat = 8
-    static let cardWidth: CGFloat = 250
-    static let screenInset: CGFloat = 6
+/// Callbacks from the views into the app delegate (window moves, menus).
+struct RingsActions {
+    var refresh: () -> Void = {}
+    var openSettings: () -> Void = {}
+    var setCollapsed: (Bool) -> Void = { _ in }
+    var setSide: (DockSide) -> Void = { _ in }
+    var dragChanged: () -> Void = {}
+    var dragEnded: () -> Void = {}
+    var quit: () -> Void = {}
+}
 
-    static var rowHeight: CGFloat { ringSize + 4 + labelHeight }
+/// Fixed metrics for the side column so the panel can be sized before
+/// SwiftUI lays out.
+struct SideLayout {
+    let size: RingSize
+    let showLabels: Bool
+    let rowCount: Int
 
-    static func columnHeight(rowCount: Int) -> CGFloat {
+    var ringDiameter: CGFloat { size.diameter }
+    var labelHeight: CGFloat { showLabels ? 11 : 0 }
+    var labelSpacing: CGFloat { showLabels ? 3 : 0 }
+    var rowHeight: CGFloat { ringDiameter + labelSpacing + labelHeight }
+    var rowSpacing: CGFloat { size == .small ? 7 : 9 }
+    var horizontalPadding: CGFloat { 7 }
+    var verticalPadding: CGFloat { 7 }
+    var handleHeight: CGFloat { 10 }
+    var handleSpacing: CGFloat { 5 }
+
+    var columnWidth: CGFloat { max(ringDiameter, 30) + horizontalPadding * 2 }
+
+    var columnHeight: CGFloat {
         let rows = CGFloat(max(1, rowCount))
-        return columnPadding * 2 + rows * rowHeight + (rows - 1) * rowSpacing
+        return verticalPadding * 2 + handleHeight + handleSpacing
+            + rows * rowHeight + (rows - 1) * rowSpacing
     }
 
-    static func panelSize(rowCount: Int, expanded: Bool) -> CGSize {
-        CGSize(
-            width: columnWidth + (expanded ? cardGap + cardWidth : 0),
-            height: columnHeight(rowCount: rowCount)
+    static let tabWidth: CGFloat = 14
+    static func tabHeight(rowCount: Int) -> CGFloat { 16 + CGFloat(max(1, rowCount)) * 10 }
+
+    static let cardGap: CGFloat = 6
+    static let cardWidth: CGFloat = 232
+    static let cardMinHeight: CGFloat = 132
+    static let screenInset: CGFloat = 5
+
+    func panelSize(collapsed: Bool, expanded: Bool) -> CGSize {
+        if collapsed {
+            return CGSize(width: Self.tabWidth, height: Self.tabHeight(rowCount: rowCount))
+        }
+        guard expanded else {
+            return CGSize(width: columnWidth, height: columnHeight)
+        }
+        return CGSize(
+            width: columnWidth + Self.cardGap + Self.cardWidth,
+            height: max(columnHeight, Self.cardMinHeight)
         )
     }
 }
 
-enum Severity {
-    static func color(_ usedPercent: Double) -> Color {
-        switch usedPercent {
-        case 90...: Color(red: 1.0, green: 0.33, blue: 0.33)
-        case 70..<90: Color(red: 1.0, green: 0.62, blue: 0.2)
-        default: Color(red: 0.25, green: 0.86, blue: 0.48)
-        }
-    }
-}
+// MARK: - Side column
 
-struct RingsRootView: View {
+struct SideRingsView: View {
     @ObservedObject var store: UsageStore
-    let onRefresh: () -> Void
-    let onToggleLaunchAtLogin: () -> Void
-    let isLaunchAtLoginEnabled: () -> Bool
-    let onOpenCodexBar: () -> Void
-    let onQuit: () -> Void
+    @ObservedObject var settings: RingsSettings
+    let actions: RingsActions
+
+    private var providers: [ProviderUsage] { store.providers.filter(settings.isVisible) }
+
+    private var layout: SideLayout {
+        SideLayout(size: settings.ringSize, showLabels: settings.showLabels, rowCount: providers.count)
+    }
+
+    private var expandedProvider: ProviderUsage? {
+        guard !settings.isCollapsed else { return nil }
+        return providers.first { $0.id == store.expandedID }
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: RingsLayout.cardGap) {
-            column
-            if let provider = store.providers.first(where: { $0.id == store.expandedID }) {
-                DetailCard(
-                    provider: provider,
-                    lastUpdated: store.lastUpdated,
-                    lastError: store.lastError,
-                    isPinned: store.pinnedID == provider.id
-                )
-                .transition(.opacity.combined(with: .move(edge: .leading)))
+        HStack(alignment: .center, spacing: SideLayout.cardGap) {
+            if settings.side == .right, let provider = expandedProvider {
+                card(provider)
+            }
+
+            Group {
+                if settings.isCollapsed {
+                    collapsedTab
+                } else {
+                    column
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { _ in actions.dragChanged() }
+                    .onEnded { _ in actions.dragEnded() }
+            )
+            .contextMenu { menu }
+
+            if settings.side == .left, let provider = expandedProvider {
+                card(provider)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .onHover { inside in
-            if !inside { store.hoveredID = nil }
-        }
-        .animation(.easeOut(duration: 0.15), value: store.expandedID)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: settings.side == .left ? .leading : .trailing
+        )
+        .opacity(settings.opacity)
+        .animation(.easeOut(duration: 0.14), value: store.expandedID)
+    }
+
+    private func card(_ provider: ProviderUsage) -> some View {
+        DetailCard(
+            provider: provider,
+            appearance: RingAppearance(settings),
+            lastUpdated: store.lastUpdated,
+            lastError: store.lastError,
+            isPinned: store.pinnedID == provider.id
+        )
+        .transition(.opacity)
     }
 
     private var column: some View {
-        VStack(spacing: RingsLayout.rowSpacing) {
-            if store.providers.isEmpty {
-                placeholderRow
-            } else {
-                ForEach(store.providers) { provider in
-                    ringRow(provider)
+        VStack(spacing: 0) {
+            Button {
+                actions.setCollapsed(true)
+            } label: {
+                Image(systemName: settings.side == .left ? "chevron.compact.left" : "chevron.compact.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: layout.handleHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("收起")
+            .padding(.bottom, layout.handleSpacing)
+
+            VStack(spacing: layout.rowSpacing) {
+                if providers.isEmpty {
+                    placeholderRow
+                } else {
+                    ForEach(providers) { provider in
+                        ringRow(provider)
+                    }
                 }
             }
         }
-        .padding(RingsLayout.columnPadding)
-        .frame(width: RingsLayout.columnWidth)
-        .background(PanelBackground(cornerRadius: 22))
-        .contextMenu {
-            Button("立即刷新") { onRefresh() }
-            Button(isLaunchAtLoginEnabled() ? "✓ 开机启动" : "开机启动") { onToggleLaunchAtLogin() }
-            Button("打开 CodexBar") { onOpenCodexBar() }
-            Divider()
-            Button("退出用量圈") { onQuit() }
-        }
+        .padding(.horizontal, layout.horizontalPadding)
+        .padding(.vertical, layout.verticalPadding)
+        .frame(width: layout.columnWidth, height: layout.columnHeight)
+        .background(PanelBackground(cornerRadius: min(18, layout.columnWidth / 2)))
     }
 
     private func ringRow(_ provider: ProviderUsage) -> some View {
-        VStack(spacing: 4) {
-            UsageRing(provider: provider)
-                .frame(width: RingsLayout.ringSize, height: RingsLayout.ringSize)
-            Text(provider.shortName)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(store.expandedID == provider.id ? 0.95 : 0.7))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(height: RingsLayout.labelHeight)
+        let isActive = store.expandedID == provider.id
+
+        return VStack(spacing: layout.labelSpacing) {
+            UsageRing(provider: provider, appearance: RingAppearance(settings))
+                .frame(width: layout.ringDiameter, height: layout.ringDiameter)
+                .scaleEffect(isActive ? 1.06 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isActive)
+
+            if settings.showLabels {
+                Text(provider.shortName)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(isActive ? 0.9 : 0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: layout.columnWidth - 4, height: layout.labelHeight)
+            }
         }
-        .frame(height: RingsLayout.rowHeight)
+        .frame(height: layout.rowHeight)
         .contentShape(Rectangle())
-        .onHover { inside in
-            if inside { store.hoveredID = provider.id }
-        }
         .onTapGesture {
             store.pinnedID = store.pinnedID == provider.id ? nil : provider.id
         }
     }
 
     private var placeholderRow: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: layout.labelSpacing) {
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.18), style: StrokeStyle(lineWidth: RingsLayout.lineWidth, dash: [3, 4]))
-                    .padding(RingsLayout.lineWidth / 2)
+                    .stroke(.white.opacity(0.18), style: StrokeStyle(lineWidth: settings.ringSize.lineWidth, dash: [2.5, 3.5]))
+                    .padding(settings.ringSize.lineWidth / 2)
                 if store.isLoading {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "exclamationmark")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.5))
                 }
             }
-            .frame(width: RingsLayout.ringSize, height: RingsLayout.ringSize)
+            .frame(width: layout.ringDiameter, height: layout.ringDiameter)
             .help(store.lastError ?? "正在读取 CodexBar…")
-            Text(store.isLoading ? "读取中" : "无数据")
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.6))
-                .frame(height: RingsLayout.labelHeight)
+
+            if settings.showLabels {
+                Text(store.isLoading ? "读取中" : "无数据")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .frame(height: layout.labelHeight)
+            }
         }
-        .frame(height: RingsLayout.rowHeight)
+        .frame(height: layout.rowHeight)
+    }
+
+    /// Collapsed: a slim tab hugging the screen edge, one dot per provider.
+    private var collapsedTab: some View {
+        VStack(spacing: 4) {
+            ForEach(providers.isEmpty ? [] : providers) { provider in
+                Circle()
+                    .fill(dotColor(provider))
+                    .frame(width: 6, height: 6)
+            }
+            if providers.isEmpty {
+                Circle().fill(.white.opacity(0.3)).frame(width: 6, height: 6)
+            }
+        }
+        .frame(width: SideLayout.tabWidth, height: SideLayout.tabHeight(rowCount: providers.count))
+        .background(PanelBackground(cornerRadius: SideLayout.tabWidth / 2))
+        .contentShape(Rectangle())
+        .onTapGesture { actions.setCollapsed(false) }
+        .help("展开用量圈")
+    }
+
+    private func dotColor(_ provider: ProviderUsage) -> Color {
+        guard let peak = provider.peak else { return .white.opacity(0.3) }
+        return RingAppearance(settings).color(peak, providerID: provider.providerID)
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        Button("立即刷新") { actions.refresh() }
+        Button(settings.isCollapsed ? "展开" : "收起") { actions.setCollapsed(!settings.isCollapsed) }
+        Button(settings.side == .left ? "停靠到右边" : "停靠到左边") {
+            actions.setSide(settings.side == .left ? .right : .left)
+        }
+        Divider()
+        Button("设置…") { actions.openSettings() }
+        Button("退出用量圈") { actions.quit() }
     }
 }
+
+// MARK: - Ring
 
 /// Concentric rings, one per quota window, outermost = longest window.
 struct UsageRing: View {
     let provider: ProviderUsage
+    let appearance: RingAppearance
+    var diameter: CGFloat?
 
-    private var windows: [UsageWindow] { Array(provider.windows.prefix(3)) }
+    private var size: CGFloat { diameter ?? appearance.size.diameter }
+    private var lineWidth: CGFloat { appearance.size.lineWidth }
+    private let ringGap: CGFloat = 1.5
+
+    /// With fewer rings than windows, keep the longest window plus the
+    /// tightest of the rest so the most urgent limit is always drawn.
+    private var windows: [UsageWindow] {
+        let all = provider.windows
+        let limit = appearance.size.maxRings
+        guard all.count > limit else { return all }
+        if limit == 1 { return provider.peak.map { [$0] } ?? [] }
+        let outer = all[0]
+        let rest = all.dropFirst().sorted { $0.usedPercent > $1.usedPercent }
+        return [outer] + rest.prefix(limit - 1).sorted { $0.spanRank > $1.spanRank }
+    }
 
     var body: some View {
         ZStack {
             if windows.isEmpty {
                 Circle()
-                    .stroke(.white.opacity(0.22), style: StrokeStyle(lineWidth: RingsLayout.lineWidth, dash: [3, 4]))
-                    .padding(RingsLayout.lineWidth / 2)
+                    .stroke(.white.opacity(0.2), style: StrokeStyle(lineWidth: lineWidth, dash: [2.5, 3.5]))
+                    .padding(lineWidth / 2)
                 Image(systemName: "exclamationmark")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: size * 0.3, weight: .bold))
                     .foregroundStyle(.white.opacity(0.55))
             } else {
                 ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
-                    ring(window, inset: CGFloat(index) * (RingsLayout.lineWidth + RingsLayout.ringGap))
+                    ring(window, inset: CGFloat(index) * (lineWidth + ringGap))
                 }
-                if let peak = provider.peak {
-                    Text("\(Int(peak.usedPercent.rounded()))%")
-                        .font(.system(size: windows.count >= 3 ? 10 : 12, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.92))
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
-                        .padding(.horizontal, CGFloat(windows.count) * (RingsLayout.lineWidth + RingsLayout.ringGap) + 2)
+                if appearance.showCenterText, let peak = provider.peak {
+                    centerText(peak)
                 }
             }
         }
+        .frame(width: size, height: size)
+    }
+
+    private func centerText(_ peak: UsageWindow) -> some View {
+        let inner = size - 2 * CGFloat(windows.count) * (lineWidth + ringGap)
+        let fontSize = min(max(inner * 0.46, 7.5), 13)
+
+        return HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text("\(appearance.value(peak))")
+                .font(.system(size: fontSize, weight: .bold, design: .rounded))
+            Text("%")
+                .font(.system(size: fontSize * 0.62, weight: .semibold, design: .rounded))
+                .opacity(0.6)
+        }
+        .monospacedDigit()
+        .foregroundStyle(appearance.valueColor(peak, providerID: provider.providerID))
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .frame(width: max(inner - 2, 8))
     }
 
     private func ring(_ window: UsageWindow, inset: CGFloat) -> some View {
-        let half = RingsLayout.lineWidth / 2
+        let color = appearance.color(window, providerID: provider.providerID)
+        let fraction = min(max(appearance.fraction(window), 0.002), 1)
+
         return ZStack {
             Circle()
-                .stroke(.white.opacity(0.1), lineWidth: RingsLayout.lineWidth)
+                .stroke(.white.opacity(0.08), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: max(0.004, window.usedPercent / 100))
+                .trim(from: 0, to: fraction)
                 .stroke(
-                    Severity.color(window.usedPercent),
-                    style: StrokeStyle(lineWidth: RingsLayout.lineWidth, lineCap: .round)
+                    AngularGradient(
+                        colors: [color.opacity(0.55), color],
+                        center: .center,
+                        startAngle: .degrees(0),
+                        endAngle: .degrees(360 * fraction)
+                    ),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.6), value: window.usedPercent)
+                .shadow(color: color.opacity(0.45), radius: 1.6)
+                .animation(.easeOut(duration: 0.6), value: fraction)
         }
-        .padding(inset + half)
+        .padding(inset + lineWidth / 2)
     }
 }
 
+// MARK: - Detail card
+
 struct DetailCard: View {
     let provider: ProviderUsage
+    let appearance: RingAppearance
     let lastUpdated: Date?
     let lastError: String?
     let isPinned: Bool
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Circle()
+                        .fill(BrandPalette.color(for: provider.providerID))
+                        .frame(width: 6, height: 6)
                     Text(provider.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                     if isPinned {
                         Image(systemName: "pin.fill")
-                            .font(.system(size: 9))
+                            .font(.system(size: 8))
                             .foregroundStyle(.white.opacity(0.4))
                     }
                     Spacer(minLength: 4)
                     if let account = provider.account {
                         Text(account)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.4))
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.white.opacity(0.38))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -215,7 +367,7 @@ struct DetailCard: View {
 
                 if let error = provider.error, provider.windows.isEmpty {
                     Text(error)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundStyle(.white.opacity(0.62))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -226,55 +378,56 @@ struct DetailCard: View {
 
                 footer(now: context.date)
             }
-            .padding(12)
-            .frame(width: RingsLayout.cardWidth, alignment: .leading)
-            .background(PanelBackground(cornerRadius: 16))
+            .padding(11)
+            .frame(width: SideLayout.cardWidth, alignment: .leading)
+            .background(PanelBackground(cornerRadius: 14))
         }
     }
 
     private func windowRow(_ window: UsageWindow, now: Date) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Text(window.label)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.5))
-                .frame(width: 22, alignment: .leading)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.48))
+                .frame(width: 20, alignment: .leading)
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.1))
+                    Capsule().fill(.white.opacity(0.09))
                     Capsule()
-                        .fill(Severity.color(window.usedPercent))
-                        .frame(width: geometry.size.width * window.usedPercent / 100)
+                        .fill(appearance.color(window, providerID: provider.providerID))
+                        .frame(width: geometry.size.width * appearance.fraction(window))
                 }
             }
-            .frame(height: 5)
+            .frame(height: 4)
 
-            Text("\(Int(window.usedPercent.rounded()))%")
-                .font(.system(size: 11.5, weight: .bold, design: .rounded))
+            Text("\(appearance.value(window))%")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(Severity.color(window.usedPercent))
-                .frame(width: 36, alignment: .trailing)
+                .foregroundStyle(appearance.valueColor(window, providerID: provider.providerID))
+                .frame(width: 34, alignment: .trailing)
 
             Text(window.resetsAt.map { Self.countdown(until: $0, from: now) } ?? "")
-                .font(.system(size: 10))
+                .font(.system(size: 9.5))
                 .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.42))
-                .frame(width: 62, alignment: .trailing)
+                .foregroundStyle(.white.opacity(0.4))
+                .frame(width: 58, alignment: .trailing)
                 .lineLimit(1)
         }
     }
 
     @ViewBuilder
     private func footer(now: Date) -> some View {
+        let metric = appearance.metric == .used ? "显示已用" : "显示剩余"
         if let lastError {
             Text(lastError)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.orange.opacity(0.7))
+                .font(.system(size: 9))
+                .foregroundStyle(.orange.opacity(0.75))
                 .lineLimit(2)
         } else if let lastUpdated {
-            Text("更新于 \(Self.relative(lastUpdated, now: now)) · 右键可刷新")
-                .font(.system(size: 9.5))
-                .foregroundStyle(.white.opacity(0.32))
+            Text("\(metric) · 更新于 \(Self.relative(lastUpdated, now: now))")
+                .font(.system(size: 9))
+                .foregroundStyle(.white.opacity(0.3))
         }
     }
 
@@ -297,6 +450,8 @@ struct DetailCard: View {
     }
 }
 
+// MARK: - Background
+
 extension EnvironmentValues {
     /// ImageRenderer can't draw AppKit views, so snapshots swap the blur for
     /// a flat fill.
@@ -308,16 +463,26 @@ struct PanelBackground: View {
     @Environment(\.isRenderingSnapshot) private var isRenderingSnapshot
 
     var body: some View {
-        if isRenderingSnapshot {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color(white: 0.12).opacity(0.94))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
-                )
-        } else {
-            BlurBackground(cornerRadius: cornerRadius)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        ZStack {
+            if isRenderingSnapshot {
+                shape.fill(Color(white: 0.1).opacity(0.92))
+            } else {
+                BlurBackground(cornerRadius: cornerRadius)
+                shape.fill(Color.black.opacity(0.28))
+            }
         }
+        .overlay(
+            shape.strokeBorder(
+                LinearGradient(
+                    colors: [.white.opacity(0.16), .white.opacity(0.04)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 0.6
+            )
+        )
+        .clipShape(shape)
     }
 }
 
@@ -335,8 +500,6 @@ private struct BlurBackground: NSViewRepresentable {
         view.layer?.cornerRadius = cornerRadius
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
-        view.layer?.borderWidth = 0.5
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
         return view
     }
 

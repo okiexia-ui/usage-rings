@@ -49,9 +49,9 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>0.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
@@ -62,8 +62,16 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-codesign --force --sign - "$bundle_dir"
-echo "Installed $bundle_dir"
+# A stable identity keeps macOS privacy grants across rebuilds (ad-hoc
+# signing changes the cdhash every build). Create it once, yourself, with
+# ../open-island-plus/scripts/setup-dev-signing.sh.
+sign_identity="-"
+if security find-identity -p codesigning -v "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
+     | grep -q '"Open Island Dev Local"'; then
+  sign_identity="Open Island Dev Local"
+fi
+codesign --force --sign "$sign_identity" "$bundle_dir"
+echo "Installed $bundle_dir (signed with: $sign_identity)"
 
 if [ "$launch" = true ]; then
   open "$bundle_dir"

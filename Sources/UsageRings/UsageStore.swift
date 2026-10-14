@@ -246,10 +246,14 @@ final class UsageStore: ObservableObject {
     /// Provider whose detail card is showing (hover), or pinned by a click.
     @Published var hoveredID: String?
     @Published var pinnedID: String?
+    /// The side column is being dragged; suppress hover cards meanwhile.
+    @Published var isDragging = false
+    @Published var isIslandHovered = false
 
-    var expandedID: String? { hoveredID ?? pinnedID }
+    var expandedID: String? { isDragging ? nil : (hoveredID ?? pinnedID) }
 
     private var pollTask: Task<Void, Never>?
+    private var pollInterval: Duration?
 
     /// Snapshot mode only: render a fixed dataset without polling.
     func load(_ providers: [ProviderUsage], updatedAt: Date) {
@@ -257,8 +261,11 @@ final class UsageStore: ObservableObject {
         self.lastUpdated = updatedAt
     }
 
+    /// Starts polling, or restarts it when the interval changed.
     func start(every interval: Duration = .seconds(150)) {
-        guard pollTask == nil else { return }
+        guard pollTask == nil || pollInterval != interval else { return }
+        pollTask?.cancel()
+        pollInterval = interval
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.refresh()
