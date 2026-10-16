@@ -263,9 +263,11 @@ struct UsageRing: View {
     let provider: ProviderUsage
     let appearance: RingAppearance
     var diameter: CGFloat?
+    /// Tiny rings (the collapsed island): thinner stroke, number without "%".
+    var compact = false
 
     private var size: CGFloat { diameter ?? appearance.size.diameter }
-    private var lineWidth: CGFloat { appearance.size.lineWidth }
+    private var lineWidth: CGFloat { compact ? 2.5 : appearance.size.lineWidth }
     private let ringGap: CGFloat = 1.5
 
     /// With fewer rings than windows, keep the longest window plus the
@@ -305,14 +307,16 @@ struct UsageRing: View {
 
     private func centerText(_ peak: UsageWindow) -> some View {
         let inner = size - 2 * CGFloat(windows.count) * (lineWidth + ringGap)
-        let fontSize = min(max(inner * 0.46, 7.5), 13)
+        let fontSize = compact ? min(max(inner * 0.58, 8), 12) : min(max(inner * 0.46, 7.5), 13)
 
         return HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text("\(appearance.value(peak))")
                 .font(.system(size: fontSize, weight: .bold, design: .rounded))
-            Text("%")
-                .font(.system(size: fontSize * 0.62, weight: .semibold, design: .rounded))
-                .opacity(0.6)
+            if !compact {
+                Text("%")
+                    .font(.system(size: fontSize * 0.62, weight: .semibold, design: .rounded))
+                    .opacity(0.6)
+            }
         }
         .monospacedDigit()
         .foregroundStyle(appearance.valueColor(peak, providerID: provider.providerID))
@@ -474,6 +478,9 @@ struct DetailCard: View {
         Group {
             if provider.isStale {
                 EmptyView()
+            } else if window.usedPercent >= 99.5 {
+                Label("已用完，等重置", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(Severity.color(100))
             } else if let pace = Pace.of(window, now: now) {
                 if let runsOut = pace.runsOutIn {
                     Label("按现在速度 \(Self.duration(runsOut))后用完", systemImage: "bolt.fill")

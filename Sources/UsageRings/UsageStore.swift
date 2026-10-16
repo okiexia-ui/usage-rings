@@ -25,7 +25,7 @@ struct ProviderUsage: Identifiable, Equatable, Codable, Sendable {
     let providerID: String
     let name: String
     let shortName: String
-    let account: String?
+    var account: String?
     /// Longest window first (outer ring → inner ring).
     var windows: [UsageWindow]
     var error: String?
@@ -253,6 +253,8 @@ final class UsageStore: ObservableObject {
     /// The side column is being dragged; suppress hover cards meanwhile.
     @Published var isDragging = false
     @Published var isIslandHovered = false
+    /// Menu-bar room right of the notch, measured by the app delegate.
+    @Published var islandRightSpace: CGFloat?
 
     var expandedID: String? { isDragging ? nil : (hoveredID ?? pinnedID) }
 

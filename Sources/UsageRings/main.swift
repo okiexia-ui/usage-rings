@@ -73,6 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .sink { [weak self] _ in self?.layoutSide() }
             .store(in: &cancellables)
 
+        // Provider count changes the island's width.
+        store.$providers
+            .map(\.count)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.layoutIsland() }
+            .store(in: &cancellables)
+
         store.$isIslandHovered
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -280,20 +288,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        let notch = NotchGeometry.of(screen)
+        // Re-measured each time: status items come and go as apps launch.
+        let rightSpace = MenuBarSpace.freeWidthRightOfNotch(on: screen, notch: notch)
+        if store.islandRightSpace != rightSpace {
+            store.islandRightSpace = rightSpace
+        }
+
         let providers = visibleProviders
         let layout = IslandLayout(
-            notch: .of(screen),
+            notch: notch,
             rowCount: providers.count,
-            maxWindows: providers.map(\.windows.count).max() ?? 1
+            maxWindows: providers.map(\.windows.count).max() ?? 1,
+            rightSpace: rightSpace
+        )
+
+        // Collapsed, the pill hugs the notch (its wings may differ in width);
+        // expanded, it centres on the notch.
+        let collapsedFrame = NSRect(
+            x: (screen.frame.minX + notch.minX - layout.leftWing).rounded(),
+            y: screen.frame.maxY - layout.collapsedSize.height,
+            width: layout.collapsedSize.width,
+            height: layout.collapsedSize.height
+        )
+        let expanded = layout.expandedSize
+        let notchMidX = screen.frame.minX + notch.minX + notch.width / 2
+        let expandedFrame = NSRect(
+            x: (notchMidX - expanded.width / 2).rounded(),
+            y: screen.frame.maxY - expanded.height,
+            width: expanded.width,
+            height: expanded.height
         )
 
         islandShrinkWork?.cancel()
         if store.isIslandHovered {
-            placeIsland(size: layout.expandedSize, on: screen)
+            placeIsland(expandedFrame)
         } else {
             // Let the collapse animation finish before the window shrinks.
             let work = DispatchWorkItem { [weak self] in
-                self?.placeIsland(size: layout.collapsedSize, on: screen)
+                self?.placeIsland(collapsedFrame)
             }
             islandShrinkWork = work
             DispatchQueue.main.asyncAfter(
@@ -302,18 +335,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             )
         }
         if !islandPanel.isVisible {
-            placeIsland(size: layout.collapsedSize, on: screen)
+            placeIsland(collapsedFrame)
             islandPanel.orderFrontRegardless()
         }
     }
 
-    private func placeIsland(size: CGSize, on screen: NSScreen) {
-        let frame = NSRect(
-            x: (screen.frame.midX - size.width / 2).rounded(),
-            y: screen.frame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
+    private func placeIsland(_ frame: NSRect) {
         if islandPanel.frame != frame {
             islandPanel.setFrame(frame, display: true)
         }
@@ -498,7 +525,27 @@ func renderSnapshots(to directory: URL, providers: [ProviderUsage]) throws {
     try side("side-card-right", size: .medium, pinned: 2, side: .right)
     try side("side-remaining-brand", size: .medium, metric: .remaining, colors: .brand)
 
-    let notch = NotchGeometry(width: 185, height: 32)
+    let notch = NotchGeometry(width: 179, height: 32, minX: 646)
+    // Collapsed island at several provider counts, to check the pill scales.
+    for count in [1, 2, 3, 4, 6] {
+        let settings = RingsSettings(defaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)")!)
+        let store = UsageStore()
+        let sample = (0..<count).map { index -> ProviderUsage in
+            var copy = providers[index % max(1, providers.count)]
+            if index >= providers.count { copy.account = "#\(index)" }
+            return copy
+        }
+        store.load(sample, updatedAt: .now)
+        let layout = IslandLayout(notch: notch, rowCount: count, maxWindows: 3)
+        try write("island-collapsed-\(count)", size: layout.collapsedSize,
+                  IslandView(store: store, settings: settings, notch: notch, actions: RingsActions()))
+
+        // Same, with only 49pt free right of the notch (crowded menu bar).
+        store.islandRightSpace = 49
+        let tight = IslandLayout(notch: notch, rowCount: count, maxWindows: 3, rightSpace: 49)
+        try write("island-collapsed-\(count)-tight", size: tight.collapsedSize,
+                  IslandView(store: store, settings: settings, notch: notch, actions: RingsActions()))
+    }
     for expanded in [false, true] {
         let settings = RingsSettings(defaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)")!)
         let store = UsageStore()

@@ -321,3 +321,38 @@ struct KeyStoreTests {
         #expect(KeyStore.key(for: "opencodego") == "oc-key")
     }
 }
+
+// MARK: - Island layout
+
+struct IslandLayoutTests {
+    private let notch = NotchGeometry(width: 179, height: 32, minX: 646)
+
+    @Test func symmetricWhenTheMenuBarHasRoom() {
+        let layout = IslandLayout(notch: notch, rowCount: 4, maxWindows: 2, rightSpace: nil)
+        #expect(layout.isSymmetric)
+        #expect(layout.leftCount == 2 && layout.rightCount == 2)
+        #expect(layout.leftWing == layout.rightWing)
+        #expect(layout.miniRing == 26)   // notch height minus 6: fills the bar
+        #expect(layout.collapsedSize.width == layout.leftWing * 2 + 179)
+    }
+
+    @Test func crowdedRightSideMovesRingsLeft() {
+        // 49pt free: one 26pt ring fits (9 + 26 + 9 = 44), two don't.
+        let layout = IslandLayout(notch: notch, rowCount: 4, maxWindows: 2, rightSpace: 49)
+        #expect(!layout.isSymmetric)
+        #expect(layout.rightCount == 1 && layout.leftCount == 3)
+        #expect(layout.rightWing <= 49)
+        #expect(layout.collapsedSize.width == layout.leftWing + 179 + layout.rightWing)
+    }
+
+    @Test func noRoomAtAllKeepsEveryRingLeft() {
+        let layout = IslandLayout(notch: notch, rowCount: 3, maxWindows: 2, rightSpace: 6)
+        #expect(layout.rightCount == 0 && layout.leftCount == 3)
+        #expect(layout.rightWing == IslandLayout.emptyWing)
+    }
+
+    @Test func soloProviderLabelsTheRightWingOnlyWhenItFits() {
+        #expect(IslandLayout(notch: notch, rowCount: 1, maxWindows: 1, rightSpace: nil).showsSoloLabel)
+        #expect(!IslandLayout(notch: notch, rowCount: 1, maxWindows: 1, rightSpace: 40).showsSoloLabel)
+    }
+}
