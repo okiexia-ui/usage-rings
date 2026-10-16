@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var screen: NSScreen? { NSScreen.screens.first }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Text fields only get ⌘V / ⌘C / ⌘A / ⌘Z through menu key
+        // equivalents; an accessory app has no menu bar unless we build one.
+        NSApp.mainMenu = makeMainMenu()
+
         let actions = RingsActions(
             refresh: { [weak self] in self?.store.refresh() },
             openSettings: { [weak self] in self?.openSettings() },
@@ -316,6 +320,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // MARK: Settings window
+
+    private func makeMainMenu() -> NSMenu {
+        let mainMenu = NSMenu()
+
+        let appMenu = NSMenu(title: "用量圈")
+        appMenu.addItem(withTitle: "关于用量圈", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let settingsItem = appMenu.addItem(withTitle: "设置…", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "退出用量圈", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        addSubmenu(appMenu, to: mainMenu)
+
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "z")
+            .keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        addSubmenu(editMenu, to: mainMenu)
+
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(withTitle: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        addSubmenu(windowMenu, to: mainMenu)
+
+        return mainMenu
+    }
+
+    private func addSubmenu(_ submenu: NSMenu, to menu: NSMenu) {
+        let item = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        menu.addItem(item)
+    }
+
+    @objc private func openSettingsFromMenu() {
+        openSettings()
+    }
 
     private func openSettings() {
         if settingsWindow == nil {

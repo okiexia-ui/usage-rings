@@ -1,3 +1,4 @@
+import AppKit
 import ServiceManagement
 import SwiftUI
 
@@ -200,9 +201,21 @@ private struct APIKeyRow: View {
                 }
             }
             HStack {
-                SecureField(isSaved ? "已保存，输入新的可以替换" : "粘贴 API key", text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(save)
+                SecureField(
+                    "API key",
+                    text: $draft,
+                    prompt: Text(isSaved ? "已保存，输入新的可以替换" : "粘贴或输入 API key")
+                )
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: .infinity)
+                .onSubmit(save)
+                Button("粘贴") {
+                    if let text = NSPasteboard.general.string(forType: .string) {
+                        draft = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+                .help("把剪贴板里的内容填进来")
                 Button("保存", action: save)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if isSaved {

@@ -8,8 +8,8 @@
 
 set -euo pipefail
 
-version="0.5.0"
-build_number="5"
+version="0.5.1"
+build_number="6"
 
 launch=true
 release=false
