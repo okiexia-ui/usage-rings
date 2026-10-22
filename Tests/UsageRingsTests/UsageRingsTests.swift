@@ -826,3 +826,49 @@ struct RateLimitCooldownTests {
         #expect(!RateLimitCooldown.isCoolingDown(id, now: now))
     }
 }
+
+struct GeminiTests {
+    @Test func quotaFoldsModelsIntoFamilies() throws {
+        let body = try json("""
+        {"buckets":[
+          {"modelId":"gemini-2.5-pro","remainingFraction":0.6,"resetTime":"2026-10-23T00:00:00Z","tokenType":"REQUESTS"},
+          {"modelId":"gemini-3-pro-preview","remainingFraction":0.35,"resetTime":"2026-10-23T00:00:00Z"},
+          {"modelId":"gemini-2.5-flash","remainingFraction":0.9},
+          {"modelId":"gemini-2.5-flash-lite","remainingFraction":1},
+          {"modelId":"text-embedding","remainingFraction":0.1}
+        ]}
+        """)
+        let windows = GeminiProvider.windows(from: body)
+        #expect(windows.map(\.scope) == ["pro", "flash", "flash-lite"])
+        #expect(windows.map(\.usedPercent) == [65, 10, 0])
+        #expect(windows.map(\.label) == ["Pro", "Flash", "Lite"])
+        #expect(windows[0].resetsAt == ISODate.parse("2026-10-23T00:00:00Z"))
+        #expect(windows.allSatisfy { $0.windowMinutes == 1_440 })
+    }
+
+    @Test func codeAssistStatusAndRetiredFreeTier() throws {
+        let paid = GeminiProvider.status(try json("""
+        {"currentTier":{"id":"standard-tier","name":"Gemini Code Assist"},"cloudaicompanionProject":"proj-1",
+         "paidTier":{"name":"Gemini Code Assist in Google One AI Pro"}}
+        """))
+        #expect(paid.project == "proj-1")
+        #expect(paid.plan == "Gemini Code Assist in Google One AI Pro")
+        #expect(!paid.retired)
+
+        let retired = GeminiProvider.status(try json("""
+        {"allowedTiers":[{"id":"standard-tier"}],
+         "ineligibleTiers":[{"reasonCode":"UNSUPPORTED_CLIENT","tierId":"free-tier"}]}
+        """))
+        #expect(retired.retired && retired.project == nil)
+
+        let nested = GeminiProvider.status(try json(#"{"currentTier":{"id":"free-tier"},"cloudaicompanionProject":{"id":"p2"}}"#))
+        #expect(nested.project == "p2" && !nested.retired)
+    }
+
+    @Test func onlyGoogleLoginsCount() {
+        #expect(GeminiProvider.usesGoogleLogin(settings: nil))
+        #expect(GeminiProvider.usesGoogleLogin(settings: ["security": ["auth": ["selectedType": "oauth-personal"]]]))
+        #expect(!GeminiProvider.usesGoogleLogin(settings: ["security": ["auth": ["selectedType": "gemini-api-key"]]]))
+        #expect(!GeminiProvider.usesGoogleLogin(settings: ["selectedAuthType": "vertex-ai"]))
+    }
+}

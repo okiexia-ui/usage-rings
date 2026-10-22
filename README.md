@@ -2,7 +2,7 @@
 
 A tiny macOS widget that shows how much of each AI coding plan you've used: one ring per agent, docked to the edge of the screen or wrapped around the MacBook notch. [English below.](#english)
 
-一个 macOS 小工具：每个 AI 编程订阅一个圆环，贴在屏幕边上或刘海两侧，一眼看到 Codex、Claude、Cursor、Copilot、OpenCode Go、Kimi、智谱 GLM、MiniMax 还剩多少额度。完全在本机运行，不需要安装其他软件。
+一个 macOS 小工具：每个 AI 编程订阅一个圆环，贴在屏幕边上或刘海两侧，一眼看到 Codex、Claude、Gemini、Cursor、Copilot、OpenCode Go、Kimi、智谱 GLM、MiniMax 还剩多少额度。完全在本机运行，不需要安装其他软件。
 
 ![用量圈：侧边圆环、详情卡、收起状态和灵动岛（示例数据）](docs/screenshot.png)
 
@@ -20,7 +20,7 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 - **侧边圆环**：贴在屏幕左边或右边，可以拖动；拖过屏幕中线会自动吸附到另一边，拖到另一块显示器就停在那块，位置会记住
 - **灵动岛**：刘海两侧显示迷你圆环，鼠标移上去会展开，显示全部详情。MacBook 外接显示器时，灵动岛会待在有刘海的那块屏幕上
 - **收起**：点一下缩成屏幕边缘的一条细竖条，彩色小点表示各家状态
-- **详情卡**：悬停或点击圆环，显示每个额度（5 小时 / 周 / 月，以及 Claude 的 Sonnet / Opus 周额度、Copilot 的高级请求等）的用量和重置倒计时
+- **详情卡**：悬停或点击圆环，显示每个额度（5 小时 / 日 / 周 / 月，以及 Claude 的 Sonnet / Opus 周额度、Gemini 各模型的每日额度、Copilot 的高级请求等）的用量和重置倒计时
 - **额度提醒**：用量超过设定比例（70% / 80% / 90%）时发一条系统通知，用完的额度重置后再提醒一次；每个周期最多提醒一次
 - **节奏预测**：每个额度按目前的速度，算出多久后用完、能不能撑到重置
 - **谁在烧额度**：读取 Claude Code 和 Codex 的本地会话记录，算出当前周期里每个会话（项目）占了多少（按 token 加权估算，只统计真正走订阅的模型）
@@ -36,6 +36,7 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 |---|---|---|
 | Codex | `~/.codex/auth.json` | `chatgpt.com/backend-api/wham/usage` |
 | Claude | 钥匙串 `Claude Code-credentials`（Claude Code 命令行登录） | `api.anthropic.com/api/oauth/usage` |
+| Gemini CLI | `~/.gemini/oauth_creds.json`（Gemini CLI 的 Google 登录） | `cloudcode-pa.googleapis.com` 的 `retrieveUserQuota` |
 | Cursor | Cursor.app 的 `state.vscdb`（只读打开） | `cursor.com/api/usage-summary` |
 | GitHub Copilot | `~/.config/github-copilot/apps.json` / `hosts.json`（Neovim、JetBrains、Xcode 等编辑器插件的登录），或设置里填的令牌 | `api.github.com/copilot_internal/user` |
 | OpenCode Go | `~/.local/share/opencode/auth.json` | `opencode.ai/zen/go/v1/usage` |
@@ -49,6 +50,7 @@ A tiny macOS widget that shows how much of each AI coding plan you've used: one 
 - 这些接口都是各家没有公开文档的内部接口，以后可能随时变化。
 - 会话统计会逐行解析 `~/.claude/projects` 和 `~/.codex/sessions` 里的会话记录，但只取 token 数、时间和项目目录，对话内容不保存、不上传。每次刷新只读新增的部分。
 - 默认只用内置方式，**不需要安装任何其他软件**。
+- Gemini CLI 的登录 1 小时就过期，只在你使用 Gemini CLI 时有效，其余时间显示最后一次的读数。Google 已停止个人免费版的 Gemini CLI，Workspace 和付费的 Code Assist 账号仍然可以读到。
 - Kimi 命令行的登录 15 分钟就过期，只在你使用 Kimi 时有效；想一直读到，在设置里填一个 [Kimi Code API Key](https://www.kimi.com/code/console)。API key 只保存在本机 `~/Library/Application Support/UsageRings/keys.json`（权限 600）。
 - 某家暂时读不到时，显示最后一次的读数并标明时间；期间已经过了重置时间的额度会直接归零。
 - 可选：装了 [CodexBar](https://github.com/steipete/CodexBar) 的话，可以在设置里把数据来源切到"内置 + CodexBar"，让它补上内置读不到的服务（支持 100 多家）。
@@ -82,7 +84,7 @@ swift build -c release && .build/release/UsageRings --snapshot /tmp/rings --demo
 
 Usage Rings is a small floating widget for macOS 14+ that draws one ring per AI coding subscription, showing how much of each quota window (5-hour, weekly, monthly, model-specific) is used and when it resets.
 
-- **Services built in:** Codex, Claude Code, Cursor, GitHub Copilot, OpenCode Go, Kimi Code, Z.ai / Zhipu GLM Coding Plan and MiniMax Coding Plan. Anything else can come from [CodexBar](https://github.com/steipete/CodexBar) if it's installed.
+- **Services built in:** Codex, Claude Code, Gemini CLI, Cursor, GitHub Copilot, OpenCode Go, Kimi Code, Z.ai / Zhipu GLM Coding Plan and MiniMax Coding Plan. Anything else can come from [CodexBar](https://github.com/steipete/CodexBar) if it's installed.
 - **Read-only:** it reuses the logins those tools already saved on your Mac (or an API key you paste into Settings), never refreshes or rewrites tokens, sends them only to that service's own HTTPS API, and refuses redirects. If Claude Code is pointed at GLM, Kimi or MiniMax (by hand or with CC Switch), the key in `~/.claude/settings.json` is picked up automatically.
 - **Two looks:** rings docked to a screen edge (any display, draggable, collapsible) or a "Dynamic Island" around the notch that expands on hover.
 - **Insights:** pace forecast (will this window last until it resets?), which local Claude Code / Codex session is burning the quota, and a hint for which subscription to use next.

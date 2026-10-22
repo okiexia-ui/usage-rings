@@ -73,6 +73,13 @@ extension UsageWindow {
     }
 }
 
+extension Double {
+    func rounded(toPlaces places: Int) -> Double {
+        let scale = pow(10, Double(places))
+        return (self * scale).rounded() / scale
+    }
+}
+
 /// Short window names: "5h", 周 / Wk, 月 / Mo, or the scope's own name.
 enum WindowLabel {
     static func text(minutes: Int?, scope: String?, key: String) -> String {
@@ -97,6 +104,9 @@ enum WindowLabel {
         case "completions": tr("补全", "Comp")
         case "opus": "Opus"
         case "sonnet": "Sonnet"
+        case "pro": "Pro"
+        case "flash": "Flash"
+        case "flash-lite": "Lite"
         default: String(scope.prefix(6))
         }
     }

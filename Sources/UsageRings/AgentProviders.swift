@@ -156,6 +156,119 @@ struct ClaudeProvider: BuiltInProvider {
     }
 }
 
+// MARK: - Gemini CLI
+
+/// Gemini CLI's Google login (`~/.gemini/oauth_creds.json`). Its access
+/// token lasts an hour and the CLI renews it while you use it; in between,
+/// the last reading stays up, marked with its time.
+struct GeminiProvider: BuiltInProvider {
+    let id = "gemini"
+    private static let codeAssist = "https://cloudcode-pa.googleapis.com/v1internal"
+
+    private var home: URL {
+        ProcessEnv.value("GEMINI_CLI_HOME").map { URL(fileURLWithPath: $0).appendingPathComponent(".gemini") }
+            ?? Home.url(".gemini")
+    }
+
+    private var credentialsURL: URL { home.appendingPathComponent("oauth_creds.json") }
+
+    /// Signed in with Google; API-key and Vertex AI setups have no plan quota.
+    func isConfigured() -> Bool {
+        guard FileManager.default.fileExists(atPath: credentialsURL.path) else { return false }
+        return Self.usesGoogleLogin(settings: JSONFile.object(at: home.appendingPathComponent("settings.json")))
+    }
+
+    static func usesGoogleLogin(settings: [String: Any]?) -> Bool {
+        let auth = (settings?["security"] as? [String: Any])?["auth"] as? [String: Any]
+        guard let selected = auth?["selectedType"] as? String ?? settings?["selectedAuthType"] as? String else { return true }
+        return selected == "oauth-personal"
+    }
+
+    func fetch() async throws -> ProviderUsage {
+        guard let credentials = JSONFile.object(at: credentialsURL),
+              let token = (credentials["access_token"] as? String)?.nonEmpty else {
+            throw ProviderError.notSignedIn(tr("没有找到 Gemini CLI 登录，请先运行 gemini 用 Google 登录",
+                                               "No Gemini CLI login found. Run gemini and sign in with Google"))
+        }
+        let renew = tr("Gemini CLI 的登录一小时就过期，用一次 Gemini CLI 就会自动续期",
+                       "The Gemini CLI login lasts an hour. Use Gemini CLI once to renew it")
+        if let expiry = Num.epochDate(credentials["expiry_date"]), expiry < .now {
+            throw ProviderError.expired(renew)
+        }
+
+        let headers = HTTP.baseHeaders(token: token)
+        let assist = try await HTTP.postJSONObject(
+            URL(string: "\(Self.codeAssist):loadCodeAssist")!,
+            headers: headers,
+            body: ["metadata": ["ideType": "GEMINI_CLI", "pluginType": "GEMINI"]],
+            authHint: renew
+        )
+        let status = Self.status(assist)
+        let retired = tr("Google 已停止个人免费版的 Gemini CLI，这个账号没有额度可读",
+                         "Google retired Gemini CLI for free personal accounts; this account has no quota to read")
+        if status.retired { throw ProviderError.badResponse(retired) }
+
+        let quota: [String: Any]
+        do {
+            quota = try await HTTP.postJSONObject(
+                URL(string: "\(Self.codeAssist):retrieveUserQuota")!,
+                headers: headers,
+                body: status.project.map { ["project": $0] } ?? [:]
+            )
+        } catch ProviderError.http(401) {
+            throw ProviderError.expired(renew)
+        } catch ProviderError.http(403) {
+            // No Code Assist license on this account.
+            throw ProviderError.badResponse(retired)
+        }
+
+        let windows = Self.windows(from: quota)
+        guard !windows.isEmpty else {
+            throw ProviderError.badResponse(tr("Gemini 没有返回额度信息", "Gemini returned no quota"))
+        }
+        let email = (credentials["id_token"] as? String).flatMap(JWT.email)
+        return ProviderUsage.make(id: id, account: email ?? status.plan, windows: windows)
+    }
+
+    /// The quota project, the plan's name, and whether Google turned this
+    /// client away (the 2026 end of Gemini CLI for free personal accounts:
+    /// no current tier, the free tier listed as an unsupported client).
+    static func status(_ body: [String: Any]) -> (project: String?, plan: String?, retired: Bool) {
+        let project: String? = {
+            if let id = (body["cloudaicompanionProject"] as? String)?.nonEmpty { return id }
+            let object = body["cloudaicompanionProject"] as? [String: Any]
+            return ((object?["id"] ?? object?["projectId"]) as? String)?.nonEmpty
+        }()
+        let paid = ((body["paidTier"] as? [String: Any])?["name"] as? String)?.nonEmpty
+        let current = body["currentTier"] as? [String: Any]
+        let plan = paid ?? (current?["name"] as? String)?.nonEmpty
+        let unsupported = (body["ineligibleTiers"] as? [[String: Any]] ?? [])
+            .contains { $0["reasonCode"] as? String == "UNSUPPORTED_CLIENT" }
+        return (project, plan, current == nil && paid == nil && unsupported)
+    }
+
+    /// Daily request quotas per model, folded into Pro, Flash and Flash
+    /// Lite: the tightest model in each family speaks for it.
+    static func windows(from body: [String: Any]) -> [UsageWindow] {
+        var tightest: [String: (left: Double, reset: Date?)] = [:]
+        for bucket in body["buckets"] as? [[String: Any]] ?? [] {
+            guard let model = (bucket["modelId"] as? String)?.lowercased(),
+                  let left = Num.double(bucket["remainingFraction"]) else { continue }
+            let family = model.contains("flash-lite") ? "flash-lite"
+                : model.contains("flash") ? "flash"
+                : model.contains("pro") ? "pro" : nil
+            guard let family, left < (tightest[family]?.left ?? .infinity) else { continue }
+            tightest[family] = (left, (bucket["resetTime"] as? String).flatMap(ISODate.parse))
+        }
+        return [("pro", "primary"), ("flash", "secondary"), ("flash-lite", "tertiary")].compactMap { family, key in
+            tightest[family].map {
+                UsageWindow.make(key: key, scope: family, usedPercent: (100 - $0.left * 100).rounded(toPlaces: 2),
+                                 minutes: 1_440, resetsAt: $0.reset)
+            }
+        }
+    }
+}
+
 // MARK: - OpenCode Go
 
 struct OpenCodeGoProvider: APIKeyProvider {

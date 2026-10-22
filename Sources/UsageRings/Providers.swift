@@ -73,6 +73,7 @@ enum BuiltInProviders {
     static let all: [any BuiltInProvider] = [
         CodexProvider(),
         ClaudeProvider(),
+        GeminiProvider(),
         CursorProvider(),
         CopilotProvider(),
         OpenCodeGoProvider(),
@@ -83,7 +84,7 @@ enum BuiltInProviders {
 
     /// "Codex, Claude Code, …" for settings copy.
     static var summary: String {
-        ["Codex", "Claude Code", "Cursor", "GitHub Copilot", "OpenCode Go", "Kimi Code", tr("智谱 GLM", "Z.ai GLM"), "MiniMax"]
+        ["Codex", "Claude Code", "Gemini CLI", "Cursor", "GitHub Copilot", "OpenCode Go", "Kimi Code", tr("智谱 GLM", "Z.ai GLM"), "MiniMax"]
             .joined(separator: tr("、", ", "))
     }
 
@@ -200,9 +201,26 @@ enum HTTP {
     /// GETs a JSON object. A 401/403 becomes `.expired(authHint)` when a
     /// hint is given, so the message can say which login to renew.
     static func getJSONObject(_ url: URL, headers: [String: String], authHint: String? = nil) async throws -> [String: Any] {
+        try await jsonObject(url, method: "GET", headers: headers, body: nil, authHint: authHint)
+    }
+
+    /// POSTs a JSON body and reads a JSON object back, like `getJSONObject`.
+    static func postJSONObject(
+        _ url: URL, headers: [String: String], body: [String: Any], authHint: String? = nil
+    ) async throws -> [String: Any] {
+        var headers = headers
+        headers["Content-Type"] = "application/json"
+        return try await jsonObject(url, method: "POST", headers: headers,
+                                    body: try JSONSerialization.data(withJSONObject: body), authHint: authHint)
+    }
+
+    private static func jsonObject(
+        _ url: URL, method: String, headers: [String: String], body: Data?, authHint: String?
+    ) async throws -> [String: Any] {
         precondition(url.scheme == "https", "credentials only go over HTTPS")
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
+        request.httpBody = body
         request.cachePolicy = .reloadIgnoringLocalCacheData
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)

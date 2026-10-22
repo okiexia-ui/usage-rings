@@ -7,6 +7,7 @@
 - **MiniMax Coding Plan / Token Plan**：国内 minimaxi.com 和国际 minimax.io 都支持。
 - **GitHub Copilot**：读取编辑器插件（Neovim、JetBrains、Xcode 等）保存的登录，也可以在设置里填令牌；显示高级请求，免费版显示对话和补全额度。
 - **Cursor**：只读打开 Cursor.app 自己的状态数据库，显示本计费周期的额度。
+- **Gemini CLI**：读取 Gemini CLI 的 Google 登录，按 Pro / Flash / Flash Lite 显示每日额度（Workspace 和付费 Code Assist 账号；个人免费版已被 Google 停用）。
 - **Claude 按模型的周额度**（Sonnet / Opus），套餐有时自动显示。
 - 让 Claude Code 走 GLM、Kimi 或 MiniMax 套餐时（手动或 CC Switch），自动从 `~/.claude/settings.json` 读出 key，不用再填。
 
@@ -32,7 +33,7 @@
 
 ### New services
 - Z.ai / Zhipu GLM Coding Plan (bigmodel.cn and z.ai) and MiniMax Coding / Token Plan (minimaxi.com and minimax.io), from a pasted key, the environment, or Claude Code's `settings.json` (as written by hand or by CC Switch).
-- GitHub Copilot from the editor plugins' login, and Cursor from Cursor.app's own database, read-only.
+- Gemini CLI's daily Pro / Flash / Flash Lite quotas from its Google login; GitHub Copilot from the editor plugins' login; Cursor from Cursor.app's own database, read-only.
 - Claude's model-specific weekly limits.
 
 ### Adaptations

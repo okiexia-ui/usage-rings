@@ -577,6 +577,10 @@ enum DemoData {
             ProviderUsage.make(id: "cursor", account: "Cursor Pro", windows: [
                 window("tertiary", 38, 43_200, resetsIn: 300),
             ]),
+            ProviderUsage.make(id: "gemini", account: "dev@example.com", windows: [
+                window("primary", 55, 1_440, resetsIn: 9, scope: "pro"),
+                window("secondary", 12, 1_440, resetsIn: 9, scope: "flash"),
+            ]),
         ]
     }
 }
