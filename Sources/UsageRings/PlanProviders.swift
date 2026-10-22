@@ -32,15 +32,17 @@ struct ZaiProvider: APIKeyProvider {
             throw ProviderError.notSignedIn(tr("没有找到智谱 GLM 的 API key", "No Z.ai GLM API key found"))
         }
         let refused = tr("智谱 GLM 的 API key 无效或已过期", "The Z.ai GLM API key was refused")
-        let body = try await PreferredHost.firstAnswer(hosts: credential.hosts, providerID: id) { host in
-            try await HTTP.getJSONObject(
+        // Parsed inside the attempt: a key for the other region often comes
+        // back as HTTP 200 with an error code, which should move on too.
+        return try await PreferredHost.firstAnswer(hosts: credential.hosts, providerID: id) { host in
+            let body = try await HTTP.getJSONObject(
                 URL(string: "https://\(host)/api/monitor/usage/quota/limit")!,
                 headers: HTTP.baseHeaders(token: credential.key),
                 authHint: refused
             )
+            let parsed = try Self.parse(body)
+            return ProviderUsage.make(id: id, account: parsed.plan, windows: parsed.windows)
         }
-        let parsed = try Self.parse(body)
-        return ProviderUsage.make(id: id, account: parsed.plan, windows: parsed.windows)
     }
 
     /// `data.limits[]`: TOKENS_LIMIT / CREDIT_LIMIT entries are the plan's
