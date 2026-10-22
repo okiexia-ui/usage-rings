@@ -98,14 +98,19 @@ enum BuiltInProviders {
         return await withTaskGroup(of: (Int, ProviderUsage).self) { group in
             for (index, provider) in configured.enumerated() {
                 group.addTask {
+                    func failure(_ error: any Error) -> (Int, ProviderUsage) {
+                        (index, ProviderUsage.make(id: provider.id, windows: [], error: error.localizedDescription))
+                    }
+                    if RateLimitCooldown.isCoolingDown(provider.id) {
+                        return failure(ProviderError.rateLimited)
+                    }
                     do {
-                        return (index, try await provider.fetch())
+                        let usage = try await provider.fetch()
+                        RateLimitCooldown.record(provider.id, rateLimited: false)
+                        return (index, usage)
                     } catch {
-                        return (index, ProviderUsage.make(
-                            id: provider.id,
-                            windows: [],
-                            error: error.localizedDescription
-                        ))
+                        RateLimitCooldown.record(provider.id, rateLimited: error as? ProviderError == .rateLimited)
+                        return failure(error)
                     }
                 }
             }
@@ -115,6 +120,35 @@ enum BuiltInProviders {
             }
             return results.sorted { $0.0 < $1.0 }.map(\.1)
         }
+    }
+}
+
+/// A provider that answered "too many requests" sits out a while, twice as
+/// long each time in a row (5, 10, 20, then 30 minutes), so polling never
+/// makes a rate limit worse. Its last reading stays on screen meanwhile.
+enum RateLimitCooldown {
+    nonisolated(unsafe) private static var until: [String: Date] = [:]
+    nonisolated(unsafe) private static var strikes: [String: Int] = [:]
+    private static let lock = NSLock()
+
+    static func isCoolingDown(_ providerID: String, now: Date = .now) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return until[providerID].map { now < $0 } ?? false
+    }
+
+    static func record(_ providerID: String, rateLimited: Bool, now: Date = .now) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard rateLimited else {
+            until[providerID] = nil
+            strikes[providerID] = nil
+            return
+        }
+        let strike = (strikes[providerID] ?? 0) + 1
+        strikes[providerID] = strike
+        let minutes = min(30, 5 * (1 << min(strike - 1, 3)))
+        until[providerID] = now.addingTimeInterval(TimeInterval(minutes * 60))
     }
 }
 

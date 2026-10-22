@@ -806,3 +806,23 @@ struct TimeTextTests {
         #expect(en { TimeText.relative(now.addingTimeInterval(-7_200), now: now) } == "2 h ago")
     }
 }
+
+struct RateLimitCooldownTests {
+    @Test func backsOffLongerEachTimeAndClearsOnSuccess() {
+        let id = "test-\(UUID().uuidString)"
+        #expect(!RateLimitCooldown.isCoolingDown(id, now: now))
+
+        RateLimitCooldown.record(id, rateLimited: true, now: now)
+        #expect(RateLimitCooldown.isCoolingDown(id, now: now.addingTimeInterval(4 * 60)))
+        #expect(!RateLimitCooldown.isCoolingDown(id, now: now.addingTimeInterval(5 * 60)))
+
+        RateLimitCooldown.record(id, rateLimited: true, now: now)
+        #expect(RateLimitCooldown.isCoolingDown(id, now: now.addingTimeInterval(9 * 60)))
+        for _ in 0..<5 { RateLimitCooldown.record(id, rateLimited: true, now: now) }
+        #expect(RateLimitCooldown.isCoolingDown(id, now: now.addingTimeInterval(29 * 60)))
+        #expect(!RateLimitCooldown.isCoolingDown(id, now: now.addingTimeInterval(30 * 60)))
+
+        RateLimitCooldown.record(id, rateLimited: false, now: now)
+        #expect(!RateLimitCooldown.isCoolingDown(id, now: now))
+    }
+}

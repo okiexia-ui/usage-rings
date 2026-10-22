@@ -133,12 +133,11 @@ struct CursorProvider: BuiltInProvider {
         Home.url("Library/Application Support/Cursor/User/globalStorage").appendingPathComponent("state.vscdb")
     }
 
+    /// Signed in, not just installed: a Cursor that was never logged into
+    /// shouldn't add a ring that can only say so.
     func isConfigured() -> Bool {
-        #if canImport(SQLite3)
         FileManager.default.fileExists(atPath: databaseURL.path)
-        #else
-        false
-        #endif
+            && StateDatabase.values(at: databaseURL, keys: ["cursorAuth/accessToken"])["cursorAuth/accessToken"]?.nonEmpty != nil
     }
 
     func fetch() async throws -> ProviderUsage {
