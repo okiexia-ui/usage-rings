@@ -13,9 +13,9 @@ struct ZaiProvider: APIKeyProvider {
         let both = [Self.mainland, Self.international]
         if let saved = KeyStore.key(for: id) { return (saved, both, .saved) }
         for name in ["ZHIPU_API_KEY", "BIGMODEL_API_KEY", "ZHIPUAI_API_KEY", "GLM_API_KEY"] {
-            if let key = Environment.value(name) { return (key, [Self.mainland], .environment(name)) }
+            if let key = ProcessEnv.value(name) { return (key, [Self.mainland], .environment(name)) }
         }
-        if let key = Environment.value("Z_AI_API_KEY") { return (key, [Self.international], .environment("Z_AI_API_KEY")) }
+        if let key = ProcessEnv.value("Z_AI_API_KEY") { return (key, [Self.international], .environment("Z_AI_API_KEY")) }
         if let claudeCode = ClaudeCodeEnv.credential(hosts: ["bigmodel.cn", "z.ai"]) {
             let host = claudeCode.host.hasSuffix("z.ai") ? Self.international : Self.mainland
             return (claudeCode.token, [host], .claudeCode)
@@ -123,7 +123,7 @@ struct MiniMaxProvider: APIKeyProvider {
         let both = [Self.mainland, Self.international]
         if let saved = KeyStore.key(for: id) { return (saved, both, .saved) }
         for name in ["MINIMAX_CODING_API_KEY", "MINIMAX_API_KEY"] {
-            if let key = Environment.value(name) { return (key, both, .environment(name)) }
+            if let key = ProcessEnv.value(name) { return (key, both, .environment(name)) }
         }
         if let claudeCode = ClaudeCodeEnv.credential(hosts: ["minimaxi.com", "minimax.io"]) {
             let host = claudeCode.host.hasSuffix("minimax.io") ? Self.international : Self.mainland

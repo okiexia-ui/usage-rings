@@ -241,7 +241,7 @@ enum UsageSpeech {
                 ? tr("\(window.label) 已用 \(value)%", "\(window.label) \(value)% used")
                 : tr("\(window.label) 剩余 \(value)%", "\(window.label) \(value)% left")
             if let reset = window.resetsAt {
-                text += tr("，\(DetailCard.countdown(until: reset, from: now))重置", ", resets \(DetailCard.countdown(until: reset, from: now))")
+                text += tr("，\(TimeText.countdown(until: reset, from: now))重置", ", resets \(TimeText.countdown(until: reset, from: now))")
             }
             parts.append(text)
         }
@@ -473,7 +473,7 @@ struct DetailCard: View {
                 .foregroundStyle(appearance.valueColor(window, providerID: provider.providerID))
                 .frame(width: 34, alignment: .trailing)
 
-            Text(window.resetsAt.map { Self.countdown(until: $0, from: now) } ?? "")
+            Text(window.resetsAt.map { TimeText.countdown(until: $0, from: now) } ?? "")
                 .font(.system(size: 9.5))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.4))
@@ -493,7 +493,7 @@ struct DetailCard: View {
                     .foregroundStyle(Severity.color(100))
             } else if let pace = Pace.of(window, now: now) {
                 if let runsOut = pace.runsOutIn {
-                    Label(tr("按现在速度 \(Self.duration(runsOut))后用完", "At this pace, out in \(Self.duration(runsOut))"),
+                    Label(tr("按现在速度 \(TimeText.duration(runsOut))后用完", "At this pace, out in \(TimeText.duration(runsOut))"),
                           systemImage: "bolt.fill")
                         .foregroundStyle(Severity.color(window.usedPercent >= 70 ? 95 : 80))
                 } else if pace.delta(used: window.usedPercent) > 10 {
@@ -590,22 +590,10 @@ struct DetailCard: View {
         return tr("这个月", "this month")
     }
 
-    static func duration(_ seconds: TimeInterval) -> String {
-        let total = max(60, Int(seconds))
-        let days = total / 86_400
-        let hours = (total % 86_400) / 3_600
-        let minutes = (total % 3_600) / 60
-        if days > 0 {
-            return hours > 0 ? tr("\(days)天\(hours)时", "\(days)d \(hours)h") : tr("\(days)天", "\(days)d")
-        }
-        if hours > 0 { return tr("\(hours)时\(minutes)分", "\(hours)h \(minutes)m") }
-        return tr("\(minutes)分钟", "\(minutes)m")
-    }
-
     private func staleText(_ error: String, now: Date) -> String {
         guard provider.isStale, let updatedAt = provider.updatedAt else { return error }
-        return tr("\(error)。下面是 \(Self.relative(updatedAt, now: now))的数据。",
-                  "\(error). Showing the reading from \(Self.relative(updatedAt, now: now)).")
+        return tr("\(error)。下面是 \(TimeText.relative(updatedAt, now: now))的数据。",
+                  "\(error). Showing the reading from \(TimeText.relative(updatedAt, now: now)).")
     }
 
     @ViewBuilder
@@ -617,31 +605,10 @@ struct DetailCard: View {
                 .foregroundStyle(.orange.opacity(0.75))
                 .lineLimit(2)
         } else if let lastUpdated {
-            Text(tr("\(metric) · 更新于 \(Self.relative(lastUpdated, now: now))", "\(metric) · updated \(Self.relative(lastUpdated, now: now))"))
+            Text(tr("\(metric) · 更新于 \(TimeText.relative(lastUpdated, now: now))", "\(metric) · updated \(TimeText.relative(lastUpdated, now: now))"))
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.3))
         }
-    }
-
-    static func countdown(until date: Date, from now: Date) -> String {
-        let seconds = Int(date.timeIntervalSince(now))
-        guard seconds > 0 else { return tr("即将重置", "resetting") }
-        let days = seconds / 86_400
-        let hours = (seconds % 86_400) / 3_600
-        let minutes = (seconds % 3_600) / 60
-        if days > 0 {
-            return hours > 0 ? tr("\(days)天\(hours)时后", "in \(days)d \(hours)h") : tr("\(days)天后", "in \(days)d")
-        }
-        if hours > 0 { return tr("\(hours)时\(minutes)分后", "in \(hours)h \(minutes)m") }
-        return tr("\(max(1, minutes))分钟后", "in \(max(1, minutes))m")
-    }
-
-    static func relative(_ date: Date, now: Date) -> String {
-        let seconds = Int(now.timeIntervalSince(date))
-        if seconds < 60 { return tr("刚刚", "just now") }
-        if seconds < 3_600 { return tr("\(seconds / 60) 分钟前", "\(seconds / 60) min ago") }
-        if seconds < 86_400 { return tr("\(seconds / 3_600) 小时前", "\(seconds / 3_600) h ago") }
-        return tr("\(seconds / 86_400) 天前", "\(seconds / 86_400) d ago")
     }
 }
 

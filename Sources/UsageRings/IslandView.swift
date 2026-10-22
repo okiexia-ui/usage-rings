@@ -222,7 +222,7 @@ struct IslandView: View {
                     }
                 }
                 if let reset = provider.peak?.resetsAt {
-                    Text("↻ " + DetailCard.countdown(until: reset, from: now))
+                    Text("↻ " + TimeText.countdown(until: reset, from: now))
                         .font(.system(size: 9.5))
                         .foregroundStyle(.white.opacity(0.35))
                         .lineLimit(1)
@@ -235,7 +235,7 @@ struct IslandView: View {
                         .frame(height: 13)
                 } else if !provider.isStale,
                    let runsOut = provider.windows.compactMap({ Pace.of($0, now: now)?.runsOutIn }).min() {
-                    Text(tr("⚡ \(DetailCard.duration(runsOut))后用完", "⚡ out in \(DetailCard.duration(runsOut))"))
+                    Text(tr("⚡ \(TimeText.duration(runsOut))后用完", "⚡ out in \(TimeText.duration(runsOut))"))
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(Severity.color(95))
                         .lineLimit(1)

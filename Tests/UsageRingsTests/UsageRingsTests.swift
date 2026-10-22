@@ -623,11 +623,11 @@ struct CredentialTests {
         let directory = try temporaryDirectory()
         KeyStore.fileURLOverride = directory.appendingPathComponent("keys.json")
         ClaudeCodeEnv.settingsURLOverride = directory.appendingPathComponent("settings.json")
-        Environment.override = [:]
+        ProcessEnv.override = [:]
         defer {
             KeyStore.fileURLOverride = nil
             ClaudeCodeEnv.settingsURLOverride = nil
-            Environment.override = nil
+            ProcessEnv.override = nil
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -662,17 +662,17 @@ struct CredentialTests {
         try KeyStore.setKey("sk-saved", for: "zai")
         #expect(ZaiProvider().keySource() == .saved)
 
-        Environment.override = ["MINIMAX_API_KEY": "sk-env"]
+        ProcessEnv.override = ["MINIMAX_API_KEY": "sk-env"]
         #expect(MiniMaxProvider().keySource() == .environment("MINIMAX_API_KEY"))
     }
 
     @Test func copilotTokenFromEditorPluginConfig() throws {
         let directory = try temporaryDirectory()
         KeyStore.fileURLOverride = directory.appendingPathComponent("keys.json")
-        Environment.override = ["XDG_CONFIG_HOME": directory.path]
+        ProcessEnv.override = ["XDG_CONFIG_HOME": directory.path]
         defer {
             KeyStore.fileURLOverride = nil
-            Environment.override = nil
+            ProcessEnv.override = nil
             try? FileManager.default.removeItem(at: directory)
         }
         #expect(!CopilotProvider().isConfigured())
@@ -792,5 +792,17 @@ struct AlertPolicyTests {
         #expect(!ledger.warned.isEmpty)
         _ = AlertPolicy.alerts(for: [], threshold: 80, onReset: true, ledger: &ledger, now: now)
         #expect(ledger == AlertLedger())
+    }
+}
+
+struct TimeTextTests {
+    @Test func countdownsAndDurationsInBothLanguages() {
+        #expect(zh { TimeText.countdown(until: now.addingTimeInterval(2 * 3_600 + 5 * 60), from: now) } == "2时5分后")
+        #expect(en { TimeText.countdown(until: now.addingTimeInterval(2 * 3_600 + 5 * 60), from: now) } == "in 2h 5m")
+        #expect(en { TimeText.countdown(until: now.addingTimeInterval(3 * 86_400), from: now) } == "in 3d")
+        #expect(zh { TimeText.countdown(until: now.addingTimeInterval(-5), from: now) } == "即将重置")
+        #expect(zh { TimeText.duration(30) } == "1分钟")
+        #expect(en { TimeText.duration(90_000) } == "1d 1h")
+        #expect(en { TimeText.relative(now.addingTimeInterval(-7_200), now: now) } == "2 h ago")
     }
 }

@@ -79,26 +79,13 @@ enum AlertPolicy {
     private static func detail(_ window: UsageWindow, now: Date) -> String {
         var parts: [String] = []
         if window.usedPercent < exhaustedAt, let runsOut = Pace.of(window, now: now)?.runsOutIn {
-            parts.append(tr("按现在速度 \(durationText(runsOut))后用完", "At this pace it runs out in \(durationText(runsOut))"))
+            parts.append(tr("按现在速度 \(TimeText.duration(runsOut))后用完", "At this pace it runs out in \(TimeText.duration(runsOut))"))
         }
         if let reset = window.resetsAt, reset > now {
-            parts.append(tr("\(durationText(reset.timeIntervalSince(now)))后重置", "resets in \(durationText(reset.timeIntervalSince(now)))"))
+            parts.append(tr("\(TimeText.duration(reset.timeIntervalSince(now)))后重置", "resets in \(TimeText.duration(reset.timeIntervalSince(now)))"))
         }
         let joined = parts.joined(separator: tr("，", ", "))
         return joined.isEmpty ? "" : joined + tr("。", ".")
-    }
-
-    /// "2时5分" / "2h 5m".
-    static func durationText(_ seconds: TimeInterval) -> String {
-        let total = max(60, Int(seconds))
-        let days = total / 86_400
-        let hours = (total % 86_400) / 3_600
-        let minutes = (total % 3_600) / 60
-        if days > 0 {
-            return hours > 0 ? tr("\(days)天\(hours)时", "\(days)d \(hours)h") : tr("\(days)天", "\(days)d")
-        }
-        if hours > 0 { return tr("\(hours)时\(minutes)分", "\(hours)h \(minutes)m") }
-        return tr("\(minutes)分钟", "\(minutes)m")
     }
 }
 

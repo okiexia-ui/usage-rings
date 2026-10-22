@@ -163,6 +163,44 @@ enum ProviderCatalog {
     }
 }
 
+// MARK: - Time wording
+
+/// Countdowns and durations in the interface language: "2时5分后" / "in 2h 5m".
+enum TimeText {
+    static func countdown(until date: Date, from now: Date) -> String {
+        let seconds = Int(date.timeIntervalSince(now))
+        guard seconds > 0 else { return tr("即将重置", "resetting") }
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        if days > 0 {
+            return hours > 0 ? tr("\(days)天\(hours)时后", "in \(days)d \(hours)h") : tr("\(days)天后", "in \(days)d")
+        }
+        if hours > 0 { return tr("\(hours)时\(minutes)分后", "in \(hours)h \(minutes)m") }
+        return tr("\(max(1, minutes))分钟后", "in \(max(1, minutes))m")
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let total = max(60, Int(seconds))
+        let days = total / 86_400
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        if days > 0 {
+            return hours > 0 ? tr("\(days)天\(hours)时", "\(days)d \(hours)h") : tr("\(days)天", "\(days)d")
+        }
+        if hours > 0 { return tr("\(hours)时\(minutes)分", "\(hours)h \(minutes)m") }
+        return tr("\(minutes)分钟", "\(minutes)m")
+    }
+
+    static func relative(_ date: Date, now: Date) -> String {
+        let seconds = Int(now.timeIntervalSince(date))
+        if seconds < 60 { return tr("刚刚", "just now") }
+        if seconds < 3_600 { return tr("\(seconds / 60) 分钟前", "\(seconds / 60) min ago") }
+        if seconds < 86_400 { return tr("\(seconds / 3_600) 小时前", "\(seconds / 3_600) h ago") }
+        return tr("\(seconds / 86_400) 天前", "\(seconds / 86_400) d ago")
+    }
+}
+
 // MARK: - Interface language
 
 enum AppLanguage: String, CaseIterable, Identifiable, Sendable {

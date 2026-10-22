@@ -233,7 +233,7 @@ enum ClaudeCodeEnv {
 
     static var settingsURL: URL {
         if let settingsURLOverride { return settingsURLOverride }
-        let configDir = Environment.value("CLAUDE_CONFIG_DIR").map { URL(fileURLWithPath: $0) } ?? Home.url(".claude")
+        let configDir = ProcessEnv.value("CLAUDE_CONFIG_DIR").map { URL(fileURLWithPath: $0) } ?? Home.url(".claude")
         return configDir.appendingPathComponent("settings.json")
     }
 
@@ -251,7 +251,7 @@ enum ClaudeCodeEnv {
     }
 }
 
-enum Environment {
+enum ProcessEnv {
     /// Tests replace the process environment with their own.
     nonisolated(unsafe) static var override: [String: String]?
 

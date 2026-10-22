@@ -6,7 +6,7 @@ struct CodexProvider: BuiltInProvider {
     let id = "codex"
 
     private var authURL: URL {
-        let home = Environment.value("CODEX_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".codex")
+        let home = ProcessEnv.value("CODEX_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".codex")
         return home.appendingPathComponent("auth.json")
     }
 
@@ -82,7 +82,7 @@ struct ClaudeProvider: BuiltInProvider {
     private static let keychainService = "Claude Code-credentials"
 
     private var credentialsFileURL: URL {
-        let configDir = Environment.value("CLAUDE_CONFIG_DIR").map { URL(fileURLWithPath: $0) } ?? Home.url(".claude")
+        let configDir = ProcessEnv.value("CLAUDE_CONFIG_DIR").map { URL(fileURLWithPath: $0) } ?? Home.url(".claude")
         return configDir.appendingPathComponent(".credentials.json")
     }
 
@@ -162,14 +162,14 @@ struct OpenCodeGoProvider: APIKeyProvider {
     let id = "opencodego"
 
     private var authURL: URL {
-        let dataHome = Environment.value("XDG_DATA_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".local/share")
+        let dataHome = ProcessEnv.value("XDG_DATA_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".local/share")
         return dataHome.appendingPathComponent("opencode/auth.json")
     }
 
     /// OpenCode stores the Go subscription key under "opencode-go".
     private func apiKey() -> (key: String, source: KeySource)? {
         if let saved = KeyStore.key(for: id) { return (saved, .saved) }
-        if let env = Environment.value("OPENCODE_API_KEY") { return (env, .environment("OPENCODE_API_KEY")) }
+        if let env = ProcessEnv.value("OPENCODE_API_KEY") { return (env, .environment("OPENCODE_API_KEY")) }
         let entry = JSONFile.object(at: authURL)?["opencode-go"] as? [String: Any]
         if let key = (entry?["key"] as? String)?.nonEmpty {
             return (key, .file("~/.local/share/opencode/auth.json"))
@@ -239,7 +239,7 @@ struct KimiProvider: APIKeyProvider {
     let id = "kimi"
 
     private var home: URL {
-        Environment.value("KIMI_CODE_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".kimi-code")
+        ProcessEnv.value("KIMI_CODE_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".kimi-code")
     }
 
     private var credentialsURL: URL {
@@ -250,7 +250,7 @@ struct KimiProvider: APIKeyProvider {
     /// token, so it is preferred when the user has created one.
     private func apiKey() -> (key: String, source: KeySource)? {
         if let saved = KeyStore.key(for: id) { return (saved, .saved) }
-        if let env = Environment.value("KIMI_CODE_API_KEY") { return (env, .environment("KIMI_CODE_API_KEY")) }
+        if let env = ProcessEnv.value("KIMI_CODE_API_KEY") { return (env, .environment("KIMI_CODE_API_KEY")) }
         if let claudeCode = ClaudeCodeEnv.credential(hosts: ["api.kimi.com"]), claudeCode.path.hasPrefix("/coding") {
             return (claudeCode.token, .claudeCode)
         }

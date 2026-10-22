@@ -12,7 +12,7 @@ struct CopilotProvider: APIKeyProvider {
     let id = "copilot"
 
     private var configDirectory: URL {
-        (Environment.value("XDG_CONFIG_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".config"))
+        (ProcessEnv.value("XDG_CONFIG_HOME").map { URL(fileURLWithPath: $0) } ?? Home.url(".config"))
             .appendingPathComponent("github-copilot", isDirectory: true)
     }
 
