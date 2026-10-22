@@ -8,8 +8,8 @@
 
 set -euo pipefail
 
-version="0.5.1"
-build_number="6"
+version="0.6.0"
+build_number="7"
 
 launch=true
 release=false
@@ -41,8 +41,18 @@ if [ "$release" = false ]; then
 fi
 
 rm -rf "$bundle_dir"
-mkdir -p "$bundle_dir/Contents/MacOS"
+mkdir -p "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
 command cp "$binary" "$bundle_dir/Contents/MacOS/UsageRings"
+
+# App icon: every size macOS asks for, cut from the 1024px master.
+iconset="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+  sips -z $size $size Resources/AppIcon.png --out "$iconset/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) Resources/AppIcon.png --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$bundle_dir/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
 
 cat > "$bundle_dir/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -51,10 +61,14 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDisplayName</key>
     <string>用量圈</string>
     <key>CFBundleExecutable</key>
     <string>UsageRings</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>$bundle_id</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -67,12 +81,16 @@ cat > "$bundle_dir/Contents/Info.plist" <<EOF
     <string>$version</string>
     <key>CFBundleVersion</key>
     <string>$build_number</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 okiexia-ui · MIT License</string>
 </dict>
 </plist>
 EOF

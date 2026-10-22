@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS build, tests and app bundle
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        run: swift test
+
+      - name: Render snapshots (demo data, both languages)
+        continue-on-error: true
+        run: |
+          .build/release/UsageRings --snapshot snapshots/zh --demo-all --lang zh
+          .build/release/UsageRings --snapshot snapshots/en --demo-all --lang en
+
+      - name: Package universal app
+        run: |
+          zsh scripts/package.sh --release
+          ditto -c -k --keepParent "dist/用量圈.app" dist/UsageRings-macOS.zip
+          codesign --verify --deep --strict "dist/用量圈.app"
+          lipo -archs "dist/用量圈.app/Contents/MacOS/UsageRings"
+          test -f "dist/用量圈.app/Contents/Resources/AppIcon.icns"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: snapshots
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UsageRings-macOS
+          path: dist/UsageRings-macOS.zip
+
+  linux:
+    name: Core logic tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test
