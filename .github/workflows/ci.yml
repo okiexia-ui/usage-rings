@@ -15,8 +15,6 @@ jobs:
     name: macOS build, tests and app bundle
     runs-on: macos-15
     timeout-minutes: 30
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -42,13 +40,6 @@ jobs:
           codesign --verify --deep --strict "dist/用量圈.app"
           lipo -archs "dist/用量圈.app/Contents/MacOS/UsageRings"
           test -f "dist/用量圈.app/Contents/Resources/AppIcon.icns"
-
-      - name: Share snapshots (temporary)
-        run: |
-          mkdir -p ci-snapshots && cp -R snapshots/* ci-snapshots/
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ci-snapshots && git commit -q -m "ci: snapshots (temporary)" && git push origin "HEAD:$GITHUB_REF_NAME"
 
       - uses: actions/upload-artifact@v4
         if: always()
