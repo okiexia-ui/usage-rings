@@ -1,16 +1,8 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
 
-/// Size and position of the camera housing on notched MacBooks; on other
-/// displays the island hangs from the middle of the menu bar.
-struct NotchGeometry: Equatable {
-    var width: CGFloat
-    var height: CGFloat
-    /// Left edge of the notch, measured from the screen's left edge.
-    var minX: CGFloat = 0
-
-    var maxX: CGFloat { minX + width }
-
+extension NotchGeometry {
     @MainActor
     static func of(_ screen: NSScreen) -> NotchGeometry {
         let top = screen.safeAreaInsets.top
@@ -51,77 +43,6 @@ enum MenuBarSpace {
     }
 }
 
-struct IslandLayout {
-    let notch: NotchGeometry
-    let rowCount: Int
-    let maxWindows: Int
-    /// Free menu-bar width right of the notch; nil = unconstrained.
-    var rightSpace: CGFloat?
-
-    static let miniSpacing: CGFloat = 7
-    static let outerPadding: CGFloat = 9
-    static let notchGap: CGFloat = 9
-    static let emptyWing: CGFloat = 14
-    static let columnWidth: CGFloat = 90
-    static let expandedRing: CGFloat = 46
-    /// A lone provider puts its name and number in the right wing instead
-    /// of leaving it empty.
-    static let soloLabelWidth: CGFloat = 78
-
-    private var count: Int { max(1, rowCount) }
-
-    /// Collapsed rings fill the notch's height; many providers shrink a bit
-    /// so the pill doesn't sprawl across the menu bar.
-    var miniRing: CGFloat {
-        let full = max(18, notch.height - 6)
-        return count > 6 ? max(18, full - 4) : full
-    }
-
-    func ringsWidth(_ rings: Int) -> CGFloat {
-        guard rings > 0 else { return Self.emptyWing }
-        let n = CGFloat(rings)
-        return Self.outerPadding + n * miniRing + (n - 1) * Self.miniSpacing + Self.notchGap
-    }
-
-    private var symmetricWing: CGFloat {
-        let wing = ringsWidth((count + 1) / 2)
-        return rowCount == 1 ? max(wing, Self.soloLabelWidth) : wing
-    }
-
-    /// Symmetric when the menu bar has room; otherwise the right wing keeps
-    /// only what fits beside the status items and the rest moves left.
-    var isSymmetric: Bool { symmetricWing <= (rightSpace ?? .infinity) }
-
-    var rightCount: Int {
-        if isSymmetric { return count - (count + 1) / 2 }
-        var fit = 0
-        while fit < count, ringsWidth(fit + 1) <= (rightSpace ?? 0) { fit += 1 }
-        return min(fit, count - (count + 1) / 2)
-    }
-
-    var leftCount: Int { count - rightCount }
-    var showsSoloLabel: Bool { rowCount == 1 && isSymmetric }
-
-    var leftWing: CGFloat { isSymmetric ? symmetricWing : ringsWidth(leftCount) }
-    var rightWing: CGFloat {
-        if isSymmetric { return symmetricWing }
-        return min(ringsWidth(rightCount), max(Self.emptyWing, rightSpace ?? 0))
-    }
-
-    var collapsedSize: CGSize {
-        CGSize(width: leftWing + notch.width + rightWing, height: notch.height)
-    }
-
-    var expandedSize: CGSize {
-        let lines = CGFloat(min(max(maxWindows, 1), 3))
-        let column = Self.expandedRing + 5 + 15 + 4 + lines * 14 + 3 + 13 + 13
-        return CGSize(
-            width: max(collapsedSize.width, CGFloat(count) * Self.columnWidth + 36),
-            height: notch.height + 10 + column + 10 + 18 + 14
-        )
-    }
-}
-
 struct IslandView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings: RingsSettings
@@ -136,7 +57,8 @@ struct IslandView: View {
             notch: notch,
             rowCount: providers.count,
             maxWindows: providers.map(\.windows.count).max() ?? 1,
-            rightSpace: store.islandRightSpace
+            rightSpace: store.islandRightSpace,
+            maxWidth: store.islandMaxWidth
         )
     }
 
@@ -164,14 +86,17 @@ struct IslandView: View {
         .frame(width: size.width, height: size.height)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("立即刷新") { actions.refresh() }
-            Button("设置…") { actions.openSettings() }
+            Button(tr("立即刷新", "Refresh Now")) { actions.refresh() }
+            Button(tr("设置…", "Settings…")) { actions.openSettings() }
             Divider()
-            Button("退出用量圈") { actions.quit() }
+            Button(tr("退出用量圈", "Quit Usage Rings")) { actions.quit() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .opacity(settings.opacity)
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: isExpanded)
+        .accessibilityElement(children: isExpanded ? .contain : .ignore)
+        .accessibilityLabel(isExpanded ? "" : tr("用量圈：", "Usage Rings: ")
+            + providers.map { UsageSpeech.summary($0, appearance: miniAppearance) }.joined(separator: tr("。", ". ")))
     }
 
     private var miniAppearance: RingAppearance {
@@ -222,25 +147,40 @@ struct IslandView: View {
         .frame(width: layout.rightWing)
     }
 
+    /// Providers in rows of `columnsPerRow`, so a long list wraps instead of
+    /// running off a narrow screen.
+    private var rows: [[ProviderUsage]] {
+        let perRow = layout.columnsPerRow
+        return stride(from: 0, to: providers.count, by: perRow).map {
+            Array(providers[$0..<min($0 + perRow, providers.count)])
+        }
+    }
+
     private var expandedContent: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(spacing: 8) {
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(providers) { provider in
-                        column(provider, now: context.date)
-                            .frame(width: IslandLayout.columnWidth)
+                VStack(spacing: IslandLayout.rowGap) {
+                    ForEach(rows, id: \.first?.id) { row in
+                        HStack(alignment: .top, spacing: 0) {
+                            ForEach(row) { provider in
+                                column(provider, now: context.date)
+                                    .frame(width: IslandLayout.columnWidth)
+                            }
+                        }
                     }
                 }
                 if let pick = Recommendation.pick(providers) {
+                    let left = 100 - Int((pick.peak?.usedPercent ?? 0).rounded())
                     HStack(spacing: 4) {
                         Image(systemName: "sparkle")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
-                        Text("下一个任务建议用 \(pick.name) · 还剩 \(100 - Int((pick.peak?.usedPercent ?? 0).rounded()))%")
+                        Text(tr("下一个任务建议用 \(pick.name) · 还剩 \(left)%", "Next task: try \(pick.name) · \(left)% left"))
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.7))
                     }
                     .frame(height: 16)
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -254,14 +194,14 @@ struct IslandView: View {
                 .frame(width: IslandLayout.expandedRing, height: IslandLayout.expandedRing)
                 .padding(.bottom, 1)
 
-            Text(provider.isStale ? "\(provider.shortName) · 旧" : provider.shortName)
+            Text(provider.isStale ? tr("\(provider.shortName) · 旧", "\(provider.shortName) · old") : provider.shortName)
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(provider.isStale ? 0.5 : 0.85))
                 .lineLimit(1)
                 .help(provider.error ?? "")
 
             if provider.windows.isEmpty {
-                Text("读取失败")
+                Text(tr("读取失败", "Unavailable"))
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
                     .help(provider.error ?? "")
@@ -277,6 +217,7 @@ struct IslandView: View {
                         }
                         .font(.system(size: 10.5, design: .rounded))
                         .monospacedDigit()
+                        .lineLimit(1)
                         .frame(height: 13)
                     }
                 }
@@ -287,20 +228,24 @@ struct IslandView: View {
                         .lineLimit(1)
                 }
                 if !provider.isStale, provider.windows.contains(where: { $0.usedPercent >= 99.5 }) {
-                    Text("⛔ 已用完")
+                    Text(tr("⛔ 已用完", "⛔ Used up"))
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(Severity.color(100))
                         .lineLimit(1)
                         .frame(height: 13)
                 } else if !provider.isStale,
                    let runsOut = provider.windows.compactMap({ Pace.of($0, now: now)?.runsOutIn }).min() {
-                    Text("⚡ \(DetailCard.duration(runsOut))后用完")
+                    Text(tr("⚡ \(DetailCard.duration(runsOut))后用完", "⚡ out in \(DetailCard.duration(runsOut))"))
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(Severity.color(95))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .frame(height: 13)
                 }
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(UsageSpeech.summary(provider, appearance: appearance, now: now))
     }
 }
+#endif

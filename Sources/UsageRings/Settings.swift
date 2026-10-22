@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 enum DisplayMode: String, CaseIterable, Identifiable {
     case side, island, both
@@ -8,9 +7,9 @@ enum DisplayMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .side: "侧边圆环"
-        case .island: "灵动岛"
-        case .both: "两个都要"
+        case .side: tr("侧边圆环", "Side rings")
+        case .island: tr("灵动岛", "Notch island")
+        case .both: tr("两个都要", "Both")
         }
     }
 
@@ -25,17 +24,20 @@ enum DataSource: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .builtIn: "内置"
-        case .auto: "内置 + CodexBar"
-        case .codexBar: "仅 CodexBar"
+        case .builtIn: tr("内置", "Built-in")
+        case .auto: tr("内置 + CodexBar", "Built-in + CodexBar")
+        case .codexBar: tr("仅 CodexBar", "CodexBar only")
         }
     }
 
     var detail: String {
         switch self {
-        case .builtIn: "直接读取本机已登录的 Codex、Claude Code、OpenCode Go、Kimi Code，不需要安装其他软件。"
-        case .auto: "先用内置方式，读不到的再用 CodexBar 补（需要已安装 CodexBar）。"
-        case .codexBar: "通过 CodexBar 命令行读取，支持 100 多家服务，需要先安装并配置 CodexBar。"
+        case .builtIn: tr("直接读取本机已登录的 \(BuiltInProviders.summary)，不需要安装其他软件。",
+                          "Reads the logins already on this Mac for \(BuiltInProviders.summary). Nothing else to install.")
+        case .auto: tr("先用内置方式，读不到的再用 CodexBar 补（需要已安装 CodexBar）。",
+                       "Built-in first; CodexBar fills in whatever that can't read (CodexBar must be installed).")
+        case .codexBar: tr("通过 CodexBar 命令行读取，支持 100 多家服务，需要先安装并配置 CodexBar。",
+                           "Reads through CodexBar's command line, which covers 100+ services. Install and set up CodexBar first.")
         }
     }
 }
@@ -44,7 +46,7 @@ enum DockSide: String, CaseIterable, Identifiable {
     case left, right
 
     var id: String { rawValue }
-    var title: String { self == .left ? "左边" : "右边" }
+    var title: String { self == .left ? tr("左边", "Left") : tr("右边", "Right") }
 }
 
 enum RingSize: String, CaseIterable, Identifiable {
@@ -54,9 +56,9 @@ enum RingSize: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .small: "小"
-        case .medium: "中"
-        case .large: "大"
+        case .small: tr("小", "S")
+        case .medium: tr("中", "M")
+        case .large: tr("大", "L")
         }
     }
 
@@ -91,20 +93,28 @@ enum RingMetric: String, CaseIterable, Identifiable {
     case used, remaining
 
     var id: String { rawValue }
-    var title: String { self == .used ? "已用" : "剩余" }
+    var title: String { self == .used ? tr("已用", "Used") : tr("剩余", "Left") }
 }
 
 enum ColorStyle: String, CaseIterable, Identifiable {
     case traffic, brand
 
     var id: String { rawValue }
-    var title: String { self == .traffic ? "按用量（绿 / 橙 / 红）" : "品牌色" }
+    var title: String {
+        self == .traffic ? tr("按用量（绿 / 橙 / 红）", "By usage (green / orange / red)") : tr("品牌色", "Brand colors")
+    }
 }
+
+#if canImport(SwiftUI)
+import Combine
+import SwiftUI
 
 /// User preferences, persisted to UserDefaults on every change.
 @MainActor
 final class RingsSettings: ObservableObject {
     static let refreshChoices: [Double] = [1, 2.5, 5, 10]
+    /// 0 turns quota alerts off.
+    static let alertChoices: [Double] = [0, 70, 80, 90]
 
     @Published var displayMode: DisplayMode { didSet { store(displayMode.rawValue, "displayMode") } }
     @Published var side: DockSide { didSet { store(side.rawValue, "side") } }
@@ -120,6 +130,18 @@ final class RingsSettings: ObservableObject {
     @Published var hiddenProviders: [String] { didSet { store(hiddenProviders, "hiddenProviders") } }
     @Published var refreshMinutes: Double { didSet { store(refreshMinutes, "refreshMinutes") } }
     @Published var dataSource: DataSource { didSet { store(dataSource.rawValue, "dataSource") } }
+    @Published var language: AppLanguage {
+        didSet {
+            store(language.rawValue, "language")
+            L10n.language = language
+        }
+    }
+    /// Display the side column lives on, by its name; empty = the main display.
+    @Published var screenName: String { didSet { store(screenName, "screenName") } }
+    /// Alert when a window passes this many percent used; 0 = off.
+    @Published var alertThreshold: Double { didSet { store(alertThreshold, "alertThreshold") } }
+    /// Alert when a used-up window resets.
+    @Published var alertOnReset: Bool { didSet { store(alertOnReset, "alertOnReset") } }
 
     private let defaults: UserDefaults
 
@@ -138,6 +160,12 @@ final class RingsSettings: ObservableObject {
         hiddenProviders = defaults.stringArray(forKey: "hiddenProviders") ?? []
         refreshMinutes = defaults.object(forKey: "refreshMinutes") as? Double ?? 2.5
         dataSource = DataSource(rawValue: defaults.string(forKey: "dataSource") ?? "") ?? .builtIn
+        language = AppLanguage(rawValue: defaults.string(forKey: "language") ?? "") ?? .system
+        screenName = defaults.string(forKey: "screenName") ?? ""
+        alertThreshold = defaults.object(forKey: "alertThreshold") as? Double ?? 90
+        alertOnReset = defaults.object(forKey: "alertOnReset") as? Bool ?? true
+        // didSet doesn't run during init.
+        L10n.language = language
     }
 
     var refreshInterval: Duration {
@@ -229,7 +257,9 @@ enum BrandPalette {
         case "zai": Color(red: 0.13, green: 0.83, blue: 0.93)
         case "minimax": Color(red: 0.96, green: 0.25, blue: 0.37)
         case "doubao": Color(red: 0.15, green: 0.39, blue: 0.92)
+        case "alibaba", "qwencloud": Color(red: 0.42, green: 0.36, blue: 0.95)
         default: Color(red: 0.61, green: 0.64, blue: 0.69)
         }
     }
 }
+#endif

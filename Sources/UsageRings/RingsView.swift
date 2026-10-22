@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
 
@@ -12,54 +13,6 @@ struct RingsActions {
     var quit: () -> Void = {}
 }
 
-/// Fixed metrics for the side column so the panel can be sized before
-/// SwiftUI lays out.
-struct SideLayout {
-    let size: RingSize
-    let showLabels: Bool
-    let rowCount: Int
-
-    var ringDiameter: CGFloat { size.diameter }
-    var labelHeight: CGFloat { showLabels ? 11 : 0 }
-    var labelSpacing: CGFloat { showLabels ? 3 : 0 }
-    var rowHeight: CGFloat { ringDiameter + labelSpacing + labelHeight }
-    var rowSpacing: CGFloat { size == .small ? 7 : 9 }
-    var horizontalPadding: CGFloat { 7 }
-    var verticalPadding: CGFloat { 7 }
-    var handleHeight: CGFloat { 10 }
-    var handleSpacing: CGFloat { 5 }
-
-    var columnWidth: CGFloat { max(ringDiameter, 30) + horizontalPadding * 2 }
-
-    var columnHeight: CGFloat {
-        let rows = CGFloat(max(1, rowCount))
-        return verticalPadding * 2 + handleHeight + handleSpacing
-            + rows * rowHeight + (rows - 1) * rowSpacing
-    }
-
-    static let tabWidth: CGFloat = 14
-    static func tabHeight(rowCount: Int) -> CGFloat { 16 + CGFloat(max(1, rowCount)) * 10 }
-
-    static let cardGap: CGFloat = 6
-    static let cardWidth: CGFloat = 232
-    static let screenInset: CGFloat = 5
-
-    /// `cardHeight` is the open detail card's estimated height, nil when
-    /// no card is showing.
-    func panelSize(collapsed: Bool, cardHeight: CGFloat?) -> CGSize {
-        if collapsed {
-            return CGSize(width: Self.tabWidth, height: Self.tabHeight(rowCount: rowCount))
-        }
-        guard let cardHeight else {
-            return CGSize(width: columnWidth, height: columnHeight)
-        }
-        return CGSize(
-            width: columnWidth + Self.cardGap + Self.cardWidth,
-            height: max(columnHeight, cardHeight)
-        )
-    }
-}
-
 // MARK: - Side column
 
 struct SideRingsView: View {
@@ -70,8 +23,12 @@ struct SideRingsView: View {
     private var providers: [ProviderUsage] { store.providers.filter(settings.isVisible) }
 
     private var layout: SideLayout {
-        SideLayout(size: settings.ringSize, showLabels: settings.showLabels, rowCount: providers.count)
+        SideLayout.fitting(size: settings.ringSize, showLabels: settings.showLabels,
+                           rowCount: providers.count, maxHeight: store.sideMaxHeight)
     }
+
+    /// The ring style at the size that fits, which can be below the setting.
+    private var appearance: RingAppearance { RingAppearance(settings, size: layout.size) }
 
     private var expandedProvider: ProviderUsage? {
         guard !settings.isCollapsed else { return nil }
@@ -138,7 +95,8 @@ struct SideRingsView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("收起")
+            .help(tr("收起", "Collapse"))
+            .accessibilityLabel(tr("收起用量圈", "Collapse Usage Rings"))
             .padding(.bottom, layout.handleSpacing)
 
             VStack(spacing: layout.rowSpacing) {
@@ -159,24 +117,25 @@ struct SideRingsView: View {
 
     private func ringRow(_ provider: ProviderUsage) -> some View {
         let isActive = store.expandedID == provider.id
+        let isRecommended = recommendation?.id == provider.id
 
         return VStack(spacing: layout.labelSpacing) {
-            UsageRing(provider: provider, appearance: RingAppearance(settings))
+            UsageRing(provider: provider, appearance: appearance)
                 .frame(width: layout.ringDiameter, height: layout.ringDiameter)
                 .overlay(alignment: .topTrailing) {
-                    if recommendation?.id == provider.id {
+                    if isRecommended {
                         Image(systemName: "sparkle")
                             .font(.system(size: max(7, layout.ringDiameter * 0.2), weight: .bold))
                             .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
                             .shadow(color: .black.opacity(0.6), radius: 1)
                             .offset(x: 3, y: -3)
-                            .help("下一个任务建议用它")
+                            .help(tr("下一个任务建议用它", "Use this one for the next task"))
                     }
                 }
                 .scaleEffect(isActive ? 1.06 : 1)
                 .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isActive)
 
-            if settings.showLabels {
+            if layout.showLabels {
                 Text(provider.shortName)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(isActive ? 0.9 : 0.55))
@@ -190,14 +149,18 @@ struct SideRingsView: View {
         .onTapGesture {
             store.pinnedID = store.pinnedID == provider.id ? nil : provider.id
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(UsageSpeech.summary(provider, appearance: appearance, recommended: isRecommended))
+        .accessibilityHint(tr("轻点固定详情卡", "Tap to pin the details card"))
+        .accessibilityAddTraits(.isButton)
     }
 
     private var placeholderRow: some View {
         VStack(spacing: layout.labelSpacing) {
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.18), style: StrokeStyle(lineWidth: settings.ringSize.lineWidth, dash: [2.5, 3.5]))
-                    .padding(settings.ringSize.lineWidth / 2)
+                    .stroke(.white.opacity(0.18), style: StrokeStyle(lineWidth: layout.size.lineWidth, dash: [2.5, 3.5]))
+                    .padding(layout.size.lineWidth / 2)
                 if store.isLoading {
                     ProgressView().controlSize(.mini)
                 } else {
@@ -207,16 +170,19 @@ struct SideRingsView: View {
                 }
             }
             .frame(width: layout.ringDiameter, height: layout.ringDiameter)
-            .help(store.lastError ?? "正在读取 CodexBar…")
+            .help(store.lastError ?? (store.isLoading
+                ? tr("正在读取用量…", "Reading usage…")
+                : tr("没有找到已登录的服务，右键 → 设置…", "No signed-in service found. Right-click → Settings…")))
 
-            if settings.showLabels {
-                Text(store.isLoading ? "读取中" : "无数据")
+            if layout.showLabels {
+                Text(store.isLoading ? tr("读取中", "Loading") : tr("无数据", "No data"))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
                     .frame(height: layout.labelHeight)
             }
         }
         .frame(height: layout.rowHeight)
+        .accessibilityElement(children: .combine)
     }
 
     /// Collapsed: a slim tab hugging the screen edge, one dot per provider.
@@ -235,24 +201,57 @@ struct SideRingsView: View {
         .background(PanelBackground(cornerRadius: SideLayout.tabWidth / 2))
         .contentShape(Rectangle())
         .onTapGesture { actions.setCollapsed(false) }
-        .help("展开用量圈")
+        .help(tr("展开用量圈", "Expand Usage Rings"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tr("展开用量圈", "Expand Usage Rings"))
+        .accessibilityAddTraits(.isButton)
     }
 
     private func dotColor(_ provider: ProviderUsage) -> Color {
         guard let peak = provider.peak else { return .white.opacity(0.3) }
-        return RingAppearance(settings).color(peak, providerID: provider.providerID)
+        return appearance.color(peak, providerID: provider.providerID)
     }
 
     @ViewBuilder
     private var menu: some View {
-        Button("立即刷新") { actions.refresh() }
-        Button(settings.isCollapsed ? "展开" : "收起") { actions.setCollapsed(!settings.isCollapsed) }
-        Button(settings.side == .left ? "停靠到右边" : "停靠到左边") {
+        Button(tr("立即刷新", "Refresh Now")) { actions.refresh() }
+        Button(settings.isCollapsed ? tr("展开", "Expand") : tr("收起", "Collapse")) { actions.setCollapsed(!settings.isCollapsed) }
+        Button(settings.side == .left ? tr("停靠到右边", "Dock Right") : tr("停靠到左边", "Dock Left")) {
             actions.setSide(settings.side == .left ? .right : .left)
         }
         Divider()
-        Button("设置…") { actions.openSettings() }
-        Button("退出用量圈") { actions.quit() }
+        Button(tr("设置…", "Settings…")) { actions.openSettings() }
+        Button(tr("退出用量圈", "Quit Usage Rings")) { actions.quit() }
+    }
+}
+
+// MARK: - Spoken summaries
+
+/// What VoiceOver reads for a provider: every window's number, and what
+/// state the reading is in.
+enum UsageSpeech {
+    static func summary(_ provider: ProviderUsage, appearance: RingAppearance, recommended: Bool = false, now: Date = .now) -> String {
+        var parts = [provider.name]
+        if provider.windows.isEmpty {
+            parts.append(provider.error ?? tr("读取失败", "couldn't read usage"))
+        }
+        for window in provider.windows {
+            let value = appearance.value(window)
+            var text = appearance.metric == .used
+                ? tr("\(window.label) 已用 \(value)%", "\(window.label) \(value)% used")
+                : tr("\(window.label) 剩余 \(value)%", "\(window.label) \(value)% left")
+            if let reset = window.resetsAt {
+                text += tr("，\(DetailCard.countdown(until: reset, from: now))重置", ", resets \(DetailCard.countdown(until: reset, from: now))")
+            }
+            parts.append(text)
+        }
+        if provider.isStale {
+            parts.append(tr("这是之前的读数", "this is an earlier reading"))
+        }
+        if recommended {
+            parts.append(tr("建议下一个任务用它", "suggested for the next task"))
+        }
+        return parts.joined(separator: tr("；", "; "))
     }
 }
 
@@ -383,6 +382,12 @@ struct DetailCard: View {
         return height + spacing + 13 + 8
     }
 
+    /// Wide enough for the longest window name ("Sonnet", "高级"…).
+    private var labelWidth: CGFloat {
+        let widest = provider.windows.map { WindowLabel.estimatedWidth($0.label) }.max() ?? 0
+        return CGFloat(min(max(20, widest + 2), 44))
+    }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: Self.spacing) {
@@ -397,6 +402,7 @@ struct DetailCard: View {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 8))
                             .foregroundStyle(.white.opacity(0.4))
+                            .accessibilityLabel(tr("已固定", "Pinned"))
                     }
                     Spacer(minLength: 4)
                     if let account = provider.account {
@@ -425,6 +431,7 @@ struct DetailCard: View {
                         windowRow(window, now: context.date)
                         paceLine(window, now: context.date)
                     }
+                    .accessibilityElement(children: .combine)
                 }
 
                 if !provider.sessionShares.isEmpty {
@@ -446,7 +453,8 @@ struct DetailCard: View {
             Text(window.label)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.48))
-                .frame(width: 20, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .leading)
 
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -457,6 +465,7 @@ struct DetailCard: View {
                 }
             }
             .frame(height: 4)
+            .accessibilityHidden(true)
 
             Text("\(appearance.value(window))%")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -470,6 +479,7 @@ struct DetailCard: View {
                 .foregroundStyle(.white.opacity(0.4))
                 .frame(width: 58, alignment: .trailing)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
     }
 
@@ -479,24 +489,27 @@ struct DetailCard: View {
             if provider.isStale {
                 EmptyView()
             } else if window.usedPercent >= 99.5 {
-                Label("已用完，等重置", systemImage: "xmark.octagon.fill")
+                Label(tr("已用完，等重置", "Used up until it resets"), systemImage: "xmark.octagon.fill")
                     .foregroundStyle(Severity.color(100))
             } else if let pace = Pace.of(window, now: now) {
                 if let runsOut = pace.runsOutIn {
-                    Label("按现在速度 \(Self.duration(runsOut))后用完", systemImage: "bolt.fill")
+                    Label(tr("按现在速度 \(Self.duration(runsOut))后用完", "At this pace, out in \(Self.duration(runsOut))"),
+                          systemImage: "bolt.fill")
                         .foregroundStyle(Severity.color(window.usedPercent >= 70 ? 95 : 80))
                 } else if pace.delta(used: window.usedPercent) > 10 {
-                    Text("用得偏快，不过撑得到重置")
+                    Text(tr("用得偏快，不过撑得到重置", "Running hot, but it'll last to the reset"))
                         .foregroundStyle(.white.opacity(0.4))
                 } else {
-                    Text("节奏正常，撑得到重置")
+                    Text(tr("节奏正常，撑得到重置", "On pace; it'll last to the reset"))
                         .foregroundStyle(.white.opacity(0.3))
                 }
             }
         }
         .font(.system(size: 9))
         .labelStyle(.titleAndIcon)
-        .padding(.leading, 27)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
+        .padding(.leading, labelWidth + 7)
         .frame(height: 11)
     }
 
@@ -506,7 +519,7 @@ struct DetailCard: View {
         let others = provider.sessionShares.dropFirst(Self.maxShareRows).reduce(0) { $0 + $1.share }
 
         return VStack(alignment: .leading, spacing: 3) {
-            Text("\(Self.periodName(window?.label))谁在用（按 token 估算）")
+            Text(tr("\(Self.periodName(window))谁在用（按 token 估算）", "By session, \(Self.periodName(window)) (token estimate)"))
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.4))
                 .frame(height: 13)
@@ -514,9 +527,10 @@ struct DetailCard: View {
                 shareRow(share.name, share.share)
             }
             if others > 0.005 {
-                shareRow("其他", others)
+                shareRow(tr("其他", "Others"), others)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private func shareRow(_ name: String, _ share: Double) -> some View {
@@ -535,6 +549,7 @@ struct DetailCard: View {
                         .fill(BrandPalette.color(for: provider.providerID))
                         .frame(width: max(2, 48 * share), height: 3)
                 }
+                .accessibilityHidden(true)
             Text("\(Int((share * 100).rounded()))%")
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .monospacedDigit()
@@ -547,30 +562,32 @@ struct DetailCard: View {
     @ViewBuilder
     private var recommendationLine: some View {
         if let recommendation, !provider.windows.isEmpty {
+            let left = 100 - Int((recommendation.peak?.usedPercent ?? 0).rounded())
             HStack(spacing: 4) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Color(red: 1, green: 0.86, blue: 0.35))
                 Text(recommendation.providerID == provider.providerID
-                     ? "现在最宽裕，下一个任务建议用它"
-                     : "下一个任务建议用 \(recommendation.name)（还剩 \(100 - Int((recommendation.peak?.usedPercent ?? 0).rounded()))%）")
+                     ? tr("现在最宽裕，下一个任务建议用它", "Most headroom now; use it for the next task")
+                     : tr("下一个任务建议用 \(recommendation.name)（还剩 \(left)%）",
+                          "Next task: try \(recommendation.name) (\(left)% left)"))
                     .font(.system(size: 9.5))
                     .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .minimumScaleFactor(0.8)
             }
             .frame(height: 13)
         }
     }
 
-    static func periodName(_ label: String?) -> String {
-        switch label {
-        case "周": "这周"
-        case "月": "这个月"
-        case "日": "今天"
-        case let label?: "这 \(label) 里"
-        case nil: "这个周期"
-        }
+    /// "这周" / "this week" for the window the sessions are counted in.
+    static func periodName(_ window: UsageWindow?) -> String {
+        guard let window else { return tr("这个周期", "this period") }
+        let minutes = window.windowMinutes ?? window.spanRank
+        if minutes < 24 * 60 { return tr("这 \(window.label) 里", "this \(window.label) window") }
+        if minutes <= 2 * 24 * 60 { return tr("今天", "today") }
+        if minutes <= 8 * 24 * 60 { return tr("这周", "this week") }
+        return tr("这个月", "this month")
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
@@ -578,26 +595,29 @@ struct DetailCard: View {
         let days = total / 86_400
         let hours = (total % 86_400) / 3_600
         let minutes = (total % 3_600) / 60
-        if days > 0 { return hours > 0 ? "\(days)天\(hours)时" : "\(days)天" }
-        if hours > 0 { return "\(hours)时\(minutes)分" }
-        return "\(minutes)分钟"
+        if days > 0 {
+            return hours > 0 ? tr("\(days)天\(hours)时", "\(days)d \(hours)h") : tr("\(days)天", "\(days)d")
+        }
+        if hours > 0 { return tr("\(hours)时\(minutes)分", "\(hours)h \(minutes)m") }
+        return tr("\(minutes)分钟", "\(minutes)m")
     }
 
     private func staleText(_ error: String, now: Date) -> String {
         guard provider.isStale, let updatedAt = provider.updatedAt else { return error }
-        return "\(error)。下面是 \(Self.relative(updatedAt, now: now))的数据。"
+        return tr("\(error)。下面是 \(Self.relative(updatedAt, now: now))的数据。",
+                  "\(error). Showing the reading from \(Self.relative(updatedAt, now: now)).")
     }
 
     @ViewBuilder
     private func footer(now: Date) -> some View {
-        let metric = appearance.metric == .used ? "显示已用" : "显示剩余"
+        let metric = appearance.metric == .used ? tr("显示已用", "Showing used") : tr("显示剩余", "Showing left")
         if let lastError {
             Text(lastError)
                 .font(.system(size: 9))
                 .foregroundStyle(.orange.opacity(0.75))
                 .lineLimit(2)
         } else if let lastUpdated {
-            Text("\(metric) · 更新于 \(Self.relative(lastUpdated, now: now))")
+            Text(tr("\(metric) · 更新于 \(Self.relative(lastUpdated, now: now))", "\(metric) · updated \(Self.relative(lastUpdated, now: now))"))
                 .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.3))
         }
@@ -605,21 +625,23 @@ struct DetailCard: View {
 
     static func countdown(until date: Date, from now: Date) -> String {
         let seconds = Int(date.timeIntervalSince(now))
-        guard seconds > 0 else { return "即将重置" }
+        guard seconds > 0 else { return tr("即将重置", "resetting") }
         let days = seconds / 86_400
         let hours = (seconds % 86_400) / 3_600
         let minutes = (seconds % 3_600) / 60
-        if days > 0 { return hours > 0 ? "\(days)天\(hours)时后" : "\(days)天后" }
-        if hours > 0 { return "\(hours)时\(minutes)分后" }
-        return "\(max(1, minutes))分钟后"
+        if days > 0 {
+            return hours > 0 ? tr("\(days)天\(hours)时后", "in \(days)d \(hours)h") : tr("\(days)天后", "in \(days)d")
+        }
+        if hours > 0 { return tr("\(hours)时\(minutes)分后", "in \(hours)h \(minutes)m") }
+        return tr("\(max(1, minutes))分钟后", "in \(max(1, minutes))m")
     }
 
     static func relative(_ date: Date, now: Date) -> String {
         let seconds = Int(now.timeIntervalSince(date))
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3_600 { return "\(seconds / 60) 分钟前" }
-        if seconds < 86_400 { return "\(seconds / 3_600) 小时前" }
-        return "\(seconds / 86_400) 天前"
+        if seconds < 60 { return tr("刚刚", "just now") }
+        if seconds < 3_600 { return tr("\(seconds / 60) 分钟前", "\(seconds / 60) min ago") }
+        if seconds < 86_400 { return tr("\(seconds / 3_600) 小时前", "\(seconds / 3_600) h ago") }
+        return tr("\(seconds / 86_400) 天前", "\(seconds / 86_400) d ago")
     }
 }
 
@@ -634,12 +656,13 @@ extension EnvironmentValues {
 struct PanelBackground: View {
     let cornerRadius: CGFloat
     @Environment(\.isRenderingSnapshot) private var isRenderingSnapshot
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         ZStack {
-            if isRenderingSnapshot {
-                shape.fill(Color(white: 0.1).opacity(0.92))
+            if isRenderingSnapshot || reduceTransparency {
+                shape.fill(Color(white: 0.1).opacity(0.94))
             } else {
                 BlurBackground(cornerRadius: cornerRadius)
                 shape.fill(Color.black.opacity(0.28))
@@ -680,3 +703,4 @@ private struct BlurBackground: NSViewRepresentable {
         view.layer?.cornerRadius = cornerRadius
     }
 }
+#endif
