@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Usage Rings app icon: three quota rings on the macOS icon grid (824pt body). -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A3042"/>
+      <stop offset="1" stop-color="#0B0E15"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2FC56B"/>
+      <stop offset="1" stop-color="#7CF5A6"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F08A1C"/>
+      <stop offset="1" stop-color="#FFC266"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F0444C"/>
+      <stop offset="1" stop-color="#FF8A80"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="drop" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#drop)">
+    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#body)"/>
+    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#sheen)"/>
+    <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-width="58" transform="rotate(-90 512 512)">
+    <!-- tracks -->
+    <circle cx="512" cy="512" r="292" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <circle cx="512" cy="512" r="218" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <circle cx="512" cy="512" r="144" stroke="#FFFFFF" stroke-opacity="0.08"/>
+    <!-- arcs: circumference 2πr; dash = share × circumference -->
+    <g filter="url(#glow)">
+      <circle cx="512" cy="512" r="292" stroke="url(#green)" stroke-dasharray="1431 1835"/>
+      <circle cx="512" cy="512" r="218" stroke="url(#orange)" stroke-dasharray="890 1370"/>
+      <circle cx="512" cy="512" r="144" stroke="url(#red)" stroke-dasharray="380 905"/>
+    </g>
+  </g>
+</svg>
