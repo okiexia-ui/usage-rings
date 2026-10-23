@@ -1,8 +1,11 @@
 name: Release
 
+# Either push a v* tag, or run this workflow from the Actions tab on main:
+# it then tags the commit with the version in scripts/package.sh itself.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,13 +17,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the tag matches the app version
+      - name: Work out the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           version="$(grep -m1 '^version=' scripts/package.sh | cut -d'"' -f2)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          tag="v$version"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF_NAME" != "main" ]; then
+              echo "Run releases from main, not $GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "$tag is already released; bump the version in scripts/package.sh first" >&2
+              exit 1
+            fi
+          elif [ "$tag" != "$GITHUB_REF_NAME" ]; then
             echo "Tag $GITHUB_REF_NAME doesn't match version $version in scripts/package.sh" >&2
             exit 1
           fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Test, build and zip
         run: zsh scripts/release.sh
@@ -29,8 +45,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="$(awk -v tag="${GITHUB_REF_NAME#v}" '
+          notes="$(awk -v tag="${TAG#v}" '
             $0 ~ "^## " { if (found) exit; if (index($0, tag)) { found = 1; next } }
             found { print }' CHANGELOG.md)"
-          gh release create "$GITHUB_REF_NAME" dist/UsageRings-*-macOS.zip dist/UsageRings-*-macOS.zip.sha256 \
-            --title "用量圈 $GITHUB_REF_NAME" --notes "${notes:-See CHANGELOG.md}"
+          # --target creates the tag on this commit when it doesn't exist yet.
+          gh release create "$TAG" dist/UsageRings-*-macOS.zip dist/UsageRings-*-macOS.zip.sha256 \
+            --target "$GITHUB_SHA" --title "用量圈 $TAG" --notes "${notes:-See CHANGELOG.md}"

@@ -78,7 +78,7 @@ swift build -c release && .build/release/UsageRings --snapshot /tmp/rings --demo
 
 核心逻辑（各家接口解析、会话统计、提醒、布局计算）不依赖 AppKit，在 Linux 上也能 `swift test`。
 
-**发布流程**：改 `scripts/package.sh` 里的 `version`，在 [CHANGELOG.md](CHANGELOG.md) 写好这一版的说明，打一个同名标签推上去（例如 `git tag v0.6.0 && git push origin v0.6.0`），GitHub Actions 会跑测试、打包通用版并自动发布 Release。每次推送也会在 CI 里编译、测试并产出可下载的 App。
+**发布流程**：改 `scripts/package.sh` 里的 `version`，在 [CHANGELOG.md](CHANGELOG.md) 写好这一版的说明，然后二选一：打一个同名标签推上去（例如 `git tag v0.6.0 && git push origin v0.6.0`），或者在 GitHub 的 Actions 页面对 `main` 手动运行 Release 工作流（它会自己打标签）。GitHub Actions 会跑测试、打包通用版并自动发布 Release。每次推送也会在 CI 里编译、测试并产出可下载的 App。
 
 ## English
 
