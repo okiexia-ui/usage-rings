@@ -2,3 +2,6 @@
 *.app
 dist/
 snapshots/
+.DS_Store
+xcuserdata/
+*.xcuserstate
